@@ -1,0 +1,72 @@
+import { NextResponse } from 'next/server';
+import { createAdminClient, getHrUser } from '@/lib/supabase/server';
+
+/** POST /api/hr/branches — create a branch. HR only. */
+export async function POST(request: Request) {
+  const hr = await getHrUser();
+  if (!hr) {
+    return NextResponse.json(
+      { error: 'HR administrator access required.' },
+      { status: 403 },
+    );
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Malformed request.' }, { status: 400 });
+  }
+
+  const parsed = parseBranchInput(body);
+  if ('error' in parsed) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from('branches')
+    // qr_secret and qr_version come from their column defaults, so a new
+    // branch is immediately printable without any extra step.
+    .insert(parsed.value)
+    .select('id, name')
+    .single();
+
+  if (error) {
+    return NextResponse.json(
+      { error: 'Could not create the branch.' },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json(data);
+}
+
+export function parseBranchInput(body: Record<string, unknown>):
+  | { value: { name: string; latitude: number; longitude: number; radius_meters: number } }
+  | { error: string } {
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  const latitude = Number(body.latitude);
+  const longitude = Number(body.longitude);
+  const radius = Number(body.radius_meters ?? body.radiusMeters);
+
+  if (!name) return { error: 'Branch name is required.' };
+  if (!Number.isFinite(latitude) || Math.abs(latitude) > 90) {
+    return { error: 'Latitude must be between -90 and 90.' };
+  }
+  if (!Number.isFinite(longitude) || Math.abs(longitude) > 180) {
+    return { error: 'Longitude must be between -180 and 180.' };
+  }
+  if (!Number.isFinite(radius) || radius <= 0 || radius > 5000) {
+    return { error: 'Geofence radius must be between 1 and 5000 metres.' };
+  }
+
+  return {
+    value: {
+      name,
+      latitude,
+      longitude,
+      radius_meters: Math.round(radius),
+    },
+  };
+}

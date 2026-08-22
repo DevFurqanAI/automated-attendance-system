@@ -1,26 +1,122 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * Brand theme (spec §12).
+ *
+ * Tailwind v4 configures the theme in CSS via `@theme` rather than a
+ * tailwind.config.js file — this block IS the theme config, and every token
+ * below becomes a real utility (bg-brand-primary, text-status-flagged, ...).
+ * Components reference these tokens; no component hardcodes a hex value.
+ */
+@theme {
+  /* --- Brand: taken from the logo's two-tone silhouette --- */
+  --color-brand-primary: #4a7c8c;
+  --color-brand-primary-hover: #3d6875;
+  --color-brand-primary-soft: #eef4f6;
+  --color-brand-secondary: #0b0e10;
+
+  /* --- Neutrals: clean, high-contrast white surface --- */
+  --color-surface: #ffffff;
+  --color-surface-muted: #f7f8f8;
+  --color-line: #e3e6e8;
+  --color-line-strong: #c9cfd3;
+  --color-ink: #0b0e10;
+  --color-ink-muted: #5c666d;
+  --color-ink-faint: #8b959b;
+
+  /*
+   * --- Status: deliberately kept OUTSIDE the brand palette so that
+   * "teal" never has to mean two different things. Only `approved`
+   * borrows the brand colour, because approved IS the brand-positive state.
+   */
+  --color-status-approved: #4a7c8c;
+  --color-status-approved-bg: #eef4f6;
+  --color-status-pending: #9a6b00;
+  --color-status-pending-bg: #fdf6e3;
+  --color-status-flagged: #c0392b;
+  --color-status-flagged-bg: #fdeeec;
+  --color-status-declined: #5c666d;
+  --color-status-declined-bg: #f1f3f4;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+
+  /* Flat design: square-ish corners, no shadow tokens by design. */
+  --radius-flat: 4px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Respect the "no gradients, no drop shadows" direction globally. */
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-surface-muted);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Keyboard focus stays visible and on-brand everywhere. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: 2px;
+}
+
+/*
+ * Shared primitives.
+ *
+ * Declared with `@utility` rather than inside `@layer components` because
+ * Tailwind v4 only lets `@apply` compose classes it knows as utilities — a
+ * plain `.btn` in a component layer cannot be applied by `.btn-primary`.
+ */
+@utility card {
+  @apply border border-line bg-surface;
+  border-radius: var(--radius-flat);
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 border px-4 py-2.5
+         text-sm font-semibold transition-colors
+         disabled:cursor-not-allowed disabled:opacity-50;
+  border-radius: var(--radius-flat);
+}
+
+@utility btn-primary {
+  @apply btn border-brand-primary bg-brand-primary text-white;
+  &:hover:not(:disabled) {
+    background-color: var(--color-brand-primary-hover);
+    border-color: var(--color-brand-primary-hover);
+  }
+}
+
+@utility btn-secondary {
+  @apply btn border-line-strong bg-surface text-ink;
+  &:hover:not(:disabled) {
+    background-color: var(--color-surface-muted);
+  }
+}
+
+@utility btn-danger {
+  @apply btn border-status-flagged bg-surface text-status-flagged;
+  &:hover:not(:disabled) {
+    background-color: var(--color-status-flagged-bg);
+  }
+}
+
+@utility field-label {
+  @apply mb-1.5 block text-sm font-semibold text-ink;
+}
+
+@utility field {
+  @apply w-full border border-line-strong bg-surface px-3 py-2.5 text-base
+         text-ink placeholder:text-ink-faint;
+  border-radius: var(--radius-flat);
+}
+
+@utility badge {
+  @apply inline-flex items-center gap-1.5 px-2 py-1 text-xs font-bold
+         uppercase tracking-wide;
+  border-radius: var(--radius-flat);
 }
