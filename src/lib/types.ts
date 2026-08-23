@@ -7,7 +7,8 @@ export type FlagReason =
   | 'mock_location_detected'
   | 'impossible_travel'
   | 'coordinate_jitter'
-  | 'out_of_range';
+  | 'out_of_range'
+  | 'branch_mismatch';
 
 export interface Branch {
   id: string;
@@ -48,6 +49,8 @@ export interface Attendance {
   check_in_accuracy_meters: number | null;
   check_out_lat: number | null;
   check_out_lng: number | null;
+  /** Branch that closed the shift. Differs from branch_id on a split shift. */
+  check_out_branch_id: string | null;
   method: Method;
   status: Status;
   flag_reason: FlagReason | null;
@@ -62,6 +65,8 @@ export interface Attendance {
 export interface AttendanceRow extends Attendance {
   employees: Pick<Employee, 'id' | 'full_name' | 'email'> | null;
   branches: Pick<Branch, 'id' | 'name'> | null;
+  /** Branch that closed the shift, when it differs from `branches`. */
+  checkout_branch: Pick<Branch, 'id' | 'name'> | null;
 }
 
 export const FLAG_REASON_LABELS: Record<FlagReason, string> = {
@@ -69,6 +74,7 @@ export const FLAG_REASON_LABELS: Record<FlagReason, string> = {
   impossible_travel: 'Impossible travel',
   coordinate_jitter: 'Suspicious coordinate repetition',
   out_of_range: 'Outside branch geofence',
+  branch_mismatch: 'Checked out at a different branch',
 };
 
 export const REMOTE_REASONS = [

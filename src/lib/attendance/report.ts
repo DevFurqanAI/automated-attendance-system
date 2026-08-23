@@ -26,6 +26,8 @@ export interface ReportEntry {
   checkInTime: string | null;
   checkOutTime: string | null;
   hours: number | null;
+  /** Set only when the shift was closed at a different branch. */
+  checkOutBranchName?: string | null;
   remoteReason: string | null;
 }
 
@@ -44,7 +46,8 @@ export async function loadReport(
     .select(
       `id, method, check_in_time, check_out_time, remote_reason,
        employees:employee_id ( id, full_name, email ),
-       branches:branch_id ( id, name )`,
+       branches:branch_id ( id, name ),
+       checkout_branch:check_out_branch_id ( id, name )`,
     )
     .eq('status', 'approved')
     // Verified time is the only time a report knows about.
@@ -66,6 +69,12 @@ export async function loadReport(
     employeeName: row.employees?.full_name ?? 'Unknown',
     employeeEmail: row.employees?.email ?? '',
     branchName: row.branches?.name ?? (row.method === 'remote_request' ? 'Remote' : '—'),
+    // Only carried when the shift closed somewhere else — an ordinary shift
+    // would just repeat the branch column for every row.
+    checkOutBranchName:
+      row.checkout_branch && row.checkout_branch.id !== row.branch_id
+        ? row.checkout_branch.name
+        : null,
     method: row.method,
     checkInTime: row.check_in_time,
     checkOutTime: row.check_out_time,
@@ -94,6 +103,7 @@ export function toCsv(entries: ReportEntry[]): string {
     'Employee',
     'Email',
     'Branch',
+    'Checked out at',
     'Method',
     'Check in',
     'Check out',
@@ -109,6 +119,7 @@ export function toCsv(entries: ReportEntry[]): string {
         e.employeeName,
         e.employeeEmail,
         e.branchName,
+        e.checkOutBranchName ?? '',
         e.method === 'qr_gps' ? 'QR + GPS' : 'Remote (approved)',
         e.checkInTime ?? '',
         e.checkOutTime ?? '',

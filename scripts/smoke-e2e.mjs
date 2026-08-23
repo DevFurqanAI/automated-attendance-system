@@ -131,6 +131,14 @@ const reports = await get('/hr/reports');
 check('/hr/reports returns 200', reports.status === 200, `got ${reports.status}`);
 check('/hr/reports renders totals', reports.body.includes('Total hours'));
 
+const audit = await get('/hr/audit');
+check('/hr/audit returns 200', audit.status === 200, `got ${audit.status}`);
+check('/hr/audit renders the log', audit.body.includes('Audit log'));
+
+const notifications = await get('/notifications');
+check('/notifications returns 200', notifications.status === 200, `got ${notifications.status}`);
+check('/notifications renders', notifications.body.includes('Notifications'));
+
 console.log('\nQR code generation');
 
 // Pull a branch id straight from the DB to request its printable code.

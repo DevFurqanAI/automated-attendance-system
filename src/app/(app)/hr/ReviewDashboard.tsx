@@ -20,9 +20,12 @@ type Tab = 'all' | 'pending' | 'flagged';
 export function ReviewDashboard({
   initialRecords,
   branches,
+  currentUserId,
 }: {
   initialRecords: AttendanceRow[];
   branches: Branch[];
+  /** The signed-in reviewer, so their own records can be called out. */
+  currentUserId: string;
 }) {
   const [records, setRecords] = useState(initialRecords);
   const [tab, setTab] = useState<Tab>('all');
@@ -41,7 +44,7 @@ export function ReviewDashboard({
     const { data } = await supabase
       .from('attendance')
       .select(
-        '*, employees:employee_id ( id, full_name, email ), branches:branch_id ( id, name )',
+        '*, employees:employee_id ( id, full_name, email ), branches:branch_id ( id, name ), checkout_branch:check_out_branch_id ( id, name )',
       )
       .in('status', ['pending', 'flagged'])
       .order('submitted_at', { ascending: false })
@@ -154,6 +157,7 @@ export function ReviewDashboard({
               key={row.id}
               row={row}
               branches={branches}
+              isOwnRecord={row.employee_id === currentUserId}
               busy={busyId === row.id}
               onReview={review}
             />
@@ -167,11 +171,13 @@ export function ReviewDashboard({
 function ReviewCard({
   row,
   branches,
+  isOwnRecord,
   busy,
   onReview,
 }: {
   row: AttendanceRow;
   branches: Branch[];
+  isOwnRecord: boolean;
   busy: boolean;
   onReview: (
     id: string,
@@ -248,7 +254,10 @@ function ReviewCard({
             <Field label="Check-in (verified)">
               {formatDateTime(row.check_in_time)}
             </Field>
-            <Field label="Branch">{row.branches?.name ?? '—'}</Field>
+            <Field label="Branch (opened)">{row.branches?.name ?? '—'}</Field>
+            {row.checkout_branch && (
+              <Field label="Branch (closed)">{row.checkout_branch.name}</Field>
+            )}
             <Field label="Reported position">
               {row.check_in_lat != null && row.check_in_lng != null
                 ? `${Number(row.check_in_lat).toFixed(5)}, ${Number(row.check_in_lng).toFixed(5)}` +
@@ -264,6 +273,26 @@ function ReviewCard({
       {row.flag_reason && (
         <p className="mt-4 border-l-4 border-status-flagged bg-status-flagged-bg p-3 text-sm font-semibold text-status-flagged">
           {FLAG_REASON_LABELS[row.flag_reason]}
+          {/* A branch mismatch is meaningless without both branch names. */}
+          {row.flag_reason === 'branch_mismatch' && row.checkout_branch && (
+            <span className="mt-1 block font-normal">
+              Opened at {row.branches?.name ?? 'an unknown branch'}, closed at{' '}
+              {row.checkout_branch.name}.
+            </span>
+          )}
+        </p>
+      )}
+
+      {/*
+        Self-review is permitted — with one HR administrator there is often
+        nobody else — but never silent. It is announced here, stamped on the
+        response, and written to the audit log as a self-action.
+      */}
+      {isOwnRecord && (
+        <p className="mt-4 border-l-4 border-brand-primary bg-brand-primary-soft p-3 text-sm text-brand-secondary">
+          <span className="font-semibold">This is your own record.</span>{' '}
+          Approving or declining it will be recorded as a self-review in the
+          audit log.
         </p>
       )}
 

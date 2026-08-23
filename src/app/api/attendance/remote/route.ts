@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { validateRemoteClaim } from '@/lib/attendance/remote-claim';
 import { isValidCoords } from '@/lib/geo';
+import { hrAdminIds, notify } from '@/lib/notify';
+import { RATE_LIMITS, checkRateLimit, tooManyRequests } from '@/lib/rate-limit';
 import { createAdminClient, getSessionUser } from '@/lib/supabase/server';
 
 /**
@@ -84,6 +86,10 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
 
+  if (!(await checkRateLimit(admin, RATE_LIMITS.remote, user.id))) {
+    return tooManyRequests(RATE_LIMITS.remote);
+  }
+
   const { data: inserted, error } = await admin
     .from('attendance')
     .insert({
@@ -112,6 +118,20 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+
+  // A pending request earns nothing until HR acts on it, so the only thing
+  // standing between the employee and unpaid work is somebody noticing.
+  await notify(
+    admin,
+    (await hrAdminIds(admin, user.id)).map((hrId) => ({
+      recipientId: hrId,
+      kind: 'remote_submitted' as const,
+      title: `Remote check-in request from ${user.employee.full_name}`,
+      body: `${reason}. Claimed ${claimedCheckIn.toISOString().slice(0, 16).replace('T', ' ')} UTC.`,
+      entityType: 'attendance' as const,
+      entityId: inserted.id,
+    })),
+  );
 
   return NextResponse.json({
     id: inserted.id,

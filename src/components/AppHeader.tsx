@@ -21,9 +21,47 @@ const NAV: NavItem[] = [
   { href: '/hr/reports', label: 'Reports', hrOnly: true },
   { href: '/hr/branches', label: 'Branches', hrOnly: true },
   { href: '/hr/employees', label: 'Employees', hrOnly: true },
+  { href: '/hr/audit', label: 'Audit', hrOnly: true },
 ];
 
-export function AppHeader({ name, role }: { name: string; role: Role }) {
+/**
+ * Bell with an unread count. A link rather than a dropdown: the count is
+ * rendered on the server with the rest of the header, so there is no state to
+ * keep in sync and it is correct on first paint.
+ */
+function NotificationBell({ count }: { count: number }) {
+  return (
+    <Link
+      href="/notifications"
+      className="relative px-2 py-1.5 text-ink-muted transition-colors hover:text-ink"
+      aria-label={
+        count > 0 ? `Notifications, ${count} unread` : 'Notifications'
+      }
+    >
+      <span aria-hidden className="text-lg leading-none">
+        🔔
+      </span>
+      {count > 0 && (
+        <span
+          aria-hidden
+          className="absolute -right-0.5 -top-0.5 min-w-4 bg-status-flagged px-1 text-center text-[10px] font-bold leading-4 text-white"
+        >
+          {count > 9 ? '9+' : count}
+        </span>
+      )}
+    </Link>
+  );
+}
+
+export function AppHeader({
+  name,
+  role,
+  unreadCount,
+}: {
+  name: string;
+  role: Role;
+  unreadCount: number;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -66,6 +104,7 @@ export function AppHeader({ name, role }: { name: string; role: Role }) {
         </nav>
 
         <div className="hidden items-center gap-3 md:flex">
+          <NotificationBell count={unreadCount} />
           <span className="text-sm text-ink-muted">{name}</span>
           <button
             type="button"
@@ -77,15 +116,18 @@ export function AppHeader({ name, role }: { name: string; role: Role }) {
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          aria-label="Toggle menu"
-          className="btn-secondary px-3 py-2 md:hidden"
-        >
-          <span aria-hidden>{open ? '✕' : '☰'}</span>
-        </button>
+        <div className="flex items-center gap-2 md:hidden">
+          <NotificationBell count={unreadCount} />
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            aria-label="Toggle menu"
+            className="btn-secondary px-3 py-2"
+          >
+            <span aria-hidden>{open ? '✕' : '☰'}</span>
+          </button>
+        </div>
       </div>
 
       {open && (

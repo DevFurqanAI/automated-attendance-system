@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { recordAudit } from '@/lib/audit';
 import { createAdminClient, getHrUser } from '@/lib/supabase/server';
 
 /** POST /api/hr/branches — create a branch. HR only. */
@@ -38,6 +39,13 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+
+  await recordAudit(admin, hr, {
+    action: 'branch.create',
+    entityType: 'branch',
+    entityId: data.id,
+    detail: parsed.value,
+  });
 
   return NextResponse.json(data);
 }

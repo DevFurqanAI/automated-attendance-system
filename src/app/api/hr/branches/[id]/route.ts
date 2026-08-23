@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
+import { recordAudit } from '@/lib/audit';
 import { createAdminClient, getHrUser } from '@/lib/supabase/server';
 import { parseBranchInput } from '../route';
 
@@ -59,6 +60,15 @@ export async function PATCH(
       );
     }
 
+    // Worth an audit line of its own: rotating invalidates every printed code
+    // at that branch, so staff arriving to a dead QR need a reason to point at.
+    await recordAudit(admin, hr, {
+      action: 'branch.qr_rotate',
+      entityType: 'branch',
+      entityId: id,
+      detail: { from_version: current.qr_version, to_version: current.qr_version + 1 },
+    });
+
     return NextResponse.json({
       id,
       rotated: true,
@@ -82,6 +92,13 @@ export async function PATCH(
       { status: 500 },
     );
   }
+
+  await recordAudit(admin, hr, {
+    action: 'branch.update',
+    entityType: 'branch',
+    entityId: id,
+    detail: parsed.value,
+  });
 
   return NextResponse.json({ id, ...parsed.value });
 }

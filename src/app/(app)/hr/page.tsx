@@ -16,7 +16,7 @@ export default async function HrReviewPage() {
     supabase
       .from('attendance')
       .select(
-        '*, employees:employee_id ( id, full_name, email ), branches:branch_id ( id, name )',
+        '*, employees:employee_id ( id, full_name, email ), branches:branch_id ( id, name ), checkout_branch:check_out_branch_id ( id, name )',
       )
       .in('status', ['pending', 'flagged'])
       .order('submitted_at', { ascending: false })
@@ -32,6 +32,7 @@ export default async function HrReviewPage() {
     <ReviewDashboard
       initialRecords={records ?? []}
       branches={branches ?? []}
+      currentUserId={hr.id}
     />
   );
 }

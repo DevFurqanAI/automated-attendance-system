@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { detectSpoofing } from '@/lib/attendance/detect';
 import { isValidCoords } from '@/lib/geo';
+import { hrAdminIds, notify } from '@/lib/notify';
 import { peekBranchId, verifyBranchToken } from '@/lib/qr-token';
+import { RATE_LIMITS, checkRateLimit, tooManyRequests } from '@/lib/rate-limit';
 import { createAdminClient, getSessionUser } from '@/lib/supabase/server';
-import type { BranchWithSecret } from '@/lib/types';
+import { FLAG_REASON_LABELS, type BranchWithSecret } from '@/lib/types';
 
 /**
  * POST /api/attendance/check-out — spec §7.2
@@ -55,6 +57,10 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient();
+
+  if (!(await checkRateLimit(admin, RATE_LIMITS.checkOut, user.id))) {
+    return tooManyRequests(RATE_LIMITS.checkOut);
+  }
 
   const branchId = peekBranchId(token);
   if (!branchId) {
@@ -119,10 +125,26 @@ export async function POST(request: Request) {
 
   const now = new Date().toISOString();
 
+  // Closing a shift at a branch other than the one it was opened at. Both
+  // scans can be perfectly legitimate on their own — each inside its own
+  // geofence — so nothing in detectSpoofing can see this: it only knows about
+  // the branch in front of it, not the one this shift started at. Neither does
+  // impossible-travel, which needs >250 km/h to trip and these branches are a
+  // few km apart across a shift lasting hours.
+  //
+  // Flagged rather than refused, on the same principle as the rest of the
+  // system: the person did work, and a human decides what it was worth.
+  const branchMismatch = Boolean(open.branch_id) && branch.id !== open.branch_id;
+
+  // A location flag from detectSpoofing outranks this one — a fake or
+  // out-of-range fix is a stronger signal than working across two sites — but
+  // a mismatch still beats no flag at all.
+  const newFlagReason = detection.flagReason ?? (branchMismatch ? 'branch_mismatch' : null);
+
   // Flags only ever accumulate. An already-flagged shift keeps its original
   // reason so HR still sees why it was first raised.
-  const status = detection.flagReason || open.status === 'flagged' ? 'flagged' : 'approved';
-  const flagReason = open.flag_reason ?? detection.flagReason;
+  const status = newFlagReason || open.status === 'flagged' ? 'flagged' : 'approved';
+  const flagReason = open.flag_reason ?? newFlagReason;
 
   const { error } = await admin
     .from('attendance')
@@ -130,6 +152,7 @@ export async function POST(request: Request) {
       check_out_time: now,
       check_out_lat: coords.lat,
       check_out_lng: coords.lng,
+      check_out_branch_id: branch.id,
       status,
       flag_reason: flagReason,
     })
@@ -142,6 +165,49 @@ export async function POST(request: Request) {
     );
   }
 
+  // Name the branch the shift was opened at, so the response can say what
+  // actually happened instead of "flagged" with no explanation.
+  let openedAtName: string | null = null;
+  if (branchMismatch) {
+    const { data: openedAt } = await admin
+      .from('branches')
+      .select('name')
+      .eq('id', open.branch_id)
+      .single<{ name: string }>();
+    openedAtName = openedAt?.name ?? null;
+  }
+
+  // Only announce a flag this check-out actually raised. A shift that arrived
+  // already flagged was announced at check-in; saying it again would train
+  // people to ignore the bell.
+  if (newFlagReason) {
+    const label = FLAG_REASON_LABELS[newFlagReason];
+    const detail =
+      detection.detail ??
+      (branchMismatch
+        ? `Opened at ${openedAtName ?? 'another branch'}, closed at ${branch.name}.`
+        : '');
+
+    await notify(admin, [
+      {
+        recipientId: user.id,
+        kind: 'attendance_flagged',
+        title: `Your check-out at ${branch.name} was flagged`,
+        body: `${label}. ${detail}`.trim(),
+        entityType: 'attendance',
+        entityId: open.id,
+      },
+      ...(await hrAdminIds(admin, user.id)).map((hrId) => ({
+        recipientId: hrId,
+        kind: 'review_needed' as const,
+        title: `Flagged check-out from ${user.employee.full_name}`,
+        body: `${label}. ${detail}`.trim(),
+        entityType: 'attendance' as const,
+        entityId: open.id,
+      })),
+    ]);
+  }
+
   return NextResponse.json({
     id: open.id,
     status,
@@ -149,7 +215,12 @@ export async function POST(request: Request) {
     checkInTime: open.check_in_time,
     checkOutTime: now,
     distanceMeters: Math.round(detection.distanceMeters),
-    flagReason: detection.flagReason,
-    flagDetail: detection.detail,
+    flagReason: newFlagReason,
+    flagDetail:
+      detection.detail ??
+      (branchMismatch
+        ? `Shift opened at ${openedAtName ?? 'another branch'} and closed at ${branch.name}.`
+        : null),
+    openedAtBranchName: openedAtName,
   });
 }

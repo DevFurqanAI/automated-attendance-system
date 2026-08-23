@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
+import { recordAudit } from '@/lib/audit';
+import { notify } from '@/lib/notify';
 import { createAdminClient, getHrUser } from '@/lib/supabase/server';
-import type { Attendance } from '@/lib/types';
+import { FLAG_REASON_LABELS, type Attendance } from '@/lib/types';
 
 /**
  * POST /api/hr/review — spec §7.4.7 and §7.5
@@ -68,6 +70,35 @@ export async function POST(request: Request) {
     );
   }
 
+  // A shift that has not been closed yet is not reviewable, because reviewing
+  // it corrupts the record either way:
+  //
+  //  - Declining sets status='declined', which drops the row out of every
+  //    "open shift" lookup (they all filter on approved/flagged, as does the
+  //    partial unique index). The employee can then never check out — they get
+  //    "You have no open shift" — the row is stranded with a null
+  //    check_out_time, and they can silently start a second shift.
+  //  - Approving is undone moments later: if the check-out trips a flag, the
+  //    row flips back to 'flagged' while keeping this review's reviewed_by and
+  //    reviewed_at, so it re-enters the queue looking already-handled.
+  //
+  // Remote requests are exempt: they have no live shift to close.
+  if (record.method === 'qr_gps' && !record.check_out_time) {
+    return NextResponse.json(
+      {
+        error:
+          'This shift is still open. It can be reviewed once the employee has ' +
+          'checked out.',
+      },
+      { status: 409 },
+    );
+  }
+
+  // Reviewing your own attendance is allowed — with one HR administrator there
+  // is often nobody else — but it is never invisible. It is stamped here, shown
+  // in the queue, and written to the audit log.
+  const selfReview = record.employee_id === hr.id;
+
   const reviewedAt = new Date().toISOString();
 
   if (action === 'decline') {
@@ -86,7 +117,31 @@ export async function POST(request: Request) {
         { status: 500 },
       );
     }
-    return NextResponse.json({ id, status: 'declined' });
+
+    await recordAudit(admin, hr, {
+      action: 'attendance.decline',
+      entityType: 'attendance',
+      entityId: id,
+      subjectId: record.employee_id,
+      detail: {
+        method: record.method,
+        previous_status: record.status,
+        flag_reason: record.flag_reason,
+      },
+    });
+
+    await notify(admin, [
+      {
+        recipientId: record.employee_id,
+        kind: 'attendance_declined',
+        title: describe(record) + ' was declined',
+        body: reviewerLine(hr.employee.full_name, selfReview),
+        entityType: 'attendance',
+        entityId: id,
+      },
+    ]);
+
+    return NextResponse.json({ id, status: 'declined', selfReview });
   }
 
   // ---- Approve -------------------------------------------------------------
@@ -136,7 +191,52 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json({ id, status: 'approved' });
+  await recordAudit(admin, hr, {
+    action: 'attendance.approve',
+    entityType: 'attendance',
+    entityId: id,
+    subjectId: record.employee_id,
+    detail: {
+      method: record.method,
+      previous_status: record.status,
+      flag_reason: record.flag_reason,
+      // Only meaningful for remote requests, where HR may correct the claim.
+      check_in_time: update.check_in_time ?? record.check_in_time,
+      check_out_time: update.check_out_time ?? record.check_out_time,
+    },
+  });
+
+  await notify(admin, [
+    {
+      recipientId: record.employee_id,
+      kind: 'attendance_approved',
+      title: describe(record) + ' was approved',
+      body: reviewerLine(hr.employee.full_name, selfReview),
+      entityType: 'attendance',
+      entityId: id,
+    },
+  ]);
+
+  return NextResponse.json({ id, status: 'approved', selfReview });
+}
+
+/** "Your remote request" / "Your flagged check-in", for a notification title. */
+function describe(record: Attendance): string {
+  if (record.method === 'remote_request') return 'Your remote check-in request';
+  const reason = record.flag_reason
+    ? ` (${FLAG_REASON_LABELS[record.flag_reason].toLowerCase()})`
+    : '';
+  return `Your flagged check-in${reason}`;
+}
+
+/**
+ * Names the reviewer. A self-review says so outright — the whole point of
+ * allowing it is that it stays visible.
+ */
+function reviewerLine(name: string, self: boolean): string {
+  return self
+    ? `Reviewed by ${name} — this was their own record.`
+    : `Reviewed by ${name}.`;
 }
 
 function parseDate(value: unknown): Date | null {

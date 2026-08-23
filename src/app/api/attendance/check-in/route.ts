@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { detectSpoofing } from '@/lib/attendance/detect';
 import { isValidCoords } from '@/lib/geo';
+import { hrAdminIds, notify } from '@/lib/notify';
 import { peekBranchId, verifyBranchToken } from '@/lib/qr-token';
+import { RATE_LIMITS, checkRateLimit, tooManyRequests } from '@/lib/rate-limit';
 import { createAdminClient, getSessionUser } from '@/lib/supabase/server';
-import type { BranchWithSecret } from '@/lib/types';
+import { FLAG_REASON_LABELS, type BranchWithSecret } from '@/lib/types';
 
 /**
  * POST /api/attendance/check-in  — spec §7.1
@@ -61,6 +63,10 @@ export async function POST(request: Request) {
   // Service role: staff are not permitted to read qr_secret, and the status of
   // the row they are about to create is the server's decision alone.
   const admin = createAdminClient();
+
+  if (!(await checkRateLimit(admin, RATE_LIMITS.checkIn, user.id))) {
+    return tooManyRequests(RATE_LIMITS.checkIn);
+  }
 
   const branchId = peekBranchId(token);
   if (!branchId) {
@@ -151,6 +157,33 @@ export async function POST(request: Request) {
       { error: 'Could not record the check-in. Please try again.' },
       { status: 500 },
     );
+  }
+
+  // A flag is the one outcome nobody would otherwise learn about in time: the
+  // employee thinks they are checked in, and HR only finds out if the dashboard
+  // happens to be open.
+  if (status === 'flagged' && detection.flagReason) {
+    const label = FLAG_REASON_LABELS[detection.flagReason];
+    await notify(admin, [
+      {
+        recipientId: user.id,
+        kind: 'attendance_flagged',
+        title: `Your check-in at ${branch.name} was flagged`,
+        body:
+          `${label}. ${detection.detail ?? ''} `.trim() +
+          ' It has been sent to HR for review and does not count until approved.',
+        entityType: 'attendance',
+        entityId: inserted.id,
+      },
+      ...(await hrAdminIds(admin, user.id)).map((hrId) => ({
+        recipientId: hrId,
+        kind: 'review_needed' as const,
+        title: `Flagged check-in from ${user.employee.full_name}`,
+        body: `${label} at ${branch.name}. ${detection.detail ?? ''}`.trim(),
+        entityType: 'attendance' as const,
+        entityId: inserted.id,
+      })),
+    ]);
   }
 
   return NextResponse.json({

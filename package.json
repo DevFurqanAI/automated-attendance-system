@@ -15,6 +15,7 @@
     "db:verify": "node scripts/db-verify.mjs",
     "db:bootstrap-admin": "node scripts/bootstrap-admin.mjs",
     "auth:configure": "node scripts/configure-auth.mjs",
+    "db:set-role": "node scripts/set-role.mjs",
     "smoke": "node scripts/smoke-e2e.mjs"
   },
   "dependencies": {

@@ -115,6 +115,94 @@ console.log('\nColumn grants on branches');
 check('qr_secret NOT readable by authenticated', colGrant[0]?.secret === false);
 check('name readable by authenticated', colGrant[0]?.name === true);
 
+// --- write privileges: the API roles must hold NONE ------------------------
+// This is the check that matters most. Supabase grants anon/authenticated full
+// CRUD on public tables by default and leans on RLS; the "attendance insert
+// own" policy constrained only WHO a row belonged to, so any signed-in
+// employee could insert an already-`approved` shift straight through PostgREST
+// and skip the QR code, the geofence and the review queue entirely.
+// See 20260824090000_harden_grants.sql.
+const writes = await q(`
+  select
+    has_table_privilege('authenticated', 'public.attendance', 'insert') as att_ins,
+    has_table_privilege('authenticated', 'public.attendance', 'update') as att_upd,
+    has_table_privilege('authenticated', 'public.attendance', 'delete') as att_del,
+    has_table_privilege('authenticated', 'public.employees',  'update') as emp_upd,
+    has_table_privilege('authenticated', 'public.employees',  'insert') as emp_ins,
+    has_table_privilege('authenticated', 'public.branches',   'update') as br_upd,
+    has_column_privilege('authenticated', 'public.branches', 'qr_secret', 'update') as qr_upd,
+    has_table_privilege('authenticated', 'public.attendance', 'select') as att_sel;
+`);
+console.log('\nWrite privileges (all must be denied)');
+check('authenticated cannot INSERT attendance', writes[0]?.att_ins === false);
+check('authenticated cannot UPDATE attendance', writes[0]?.att_upd === false);
+check('authenticated cannot DELETE attendance', writes[0]?.att_del === false);
+check('authenticated cannot UPDATE employees', writes[0]?.emp_upd === false);
+check('authenticated cannot INSERT employees', writes[0]?.emp_ins === false);
+check('authenticated cannot UPDATE branches', writes[0]?.br_upd === false);
+check('authenticated cannot write qr_secret', writes[0]?.qr_upd === false);
+// ...but reads must survive, or the whole app goes blank.
+check('authenticated CAN still SELECT attendance', writes[0]?.att_sel === true);
+
+// --- audit log ------------------------------------------------------------
+const audit = await q(`
+  select
+    to_regclass('public.audit_log') is not null as exists,
+    has_table_privilege('authenticated', 'public.audit_log', 'insert') as ins,
+    has_table_privilege('authenticated', 'public.audit_log', 'update') as upd,
+    has_table_privilege('authenticated', 'public.audit_log', 'delete') as del;
+`);
+console.log('\nAudit log');
+check('audit_log exists', audit[0]?.exists === true);
+check('append-only: no INSERT for authenticated', audit[0]?.ins === false);
+check('append-only: no UPDATE for authenticated', audit[0]?.upd === false);
+check('append-only: no DELETE for authenticated', audit[0]?.del === false);
+
+// --- notifications --------------------------------------------------------
+const notif = await q(`
+  select
+    to_regclass('public.notifications') is not null as exists,
+    has_table_privilege('authenticated', 'public.notifications', 'select') as sel,
+    has_table_privilege('authenticated', 'public.notifications', 'update') as upd;
+`);
+console.log('\nNotifications');
+check('notifications exists', notif[0]?.exists === true);
+check('readable by authenticated (RLS scopes to own)', notif[0]?.sel === true);
+check('not writable by authenticated', notif[0]?.upd === false);
+
+// --- rate limiter ---------------------------------------------------------
+const rl = await q(`
+  select
+    to_regclass('private.rate_limit') is not null as tbl,
+    has_function_privilege('authenticated', 'public.rate_limit_hit(text,integer,integer)', 'execute') as auth_can,
+    has_function_privilege('service_role', 'public.rate_limit_hit(text,integer,integer)', 'execute') as svc_can;
+`);
+console.log('\nRate limiter');
+check('private.rate_limit exists', rl[0]?.tbl === true);
+// If a signed-in user could call this, they could burn anyone's budget by
+// naming their bucket.
+check('authenticated may NOT execute rate_limit_hit', rl[0]?.auth_can === false);
+check('service_role may execute rate_limit_hit', rl[0]?.svc_can === true);
+
+// --- check-out branch -----------------------------------------------------
+const cob = await q(`
+  select count(*)::int as n from information_schema.columns
+  where table_schema = 'public' and table_name = 'attendance'
+    and column_name = 'check_out_branch_id';
+`);
+console.log('\nSplit-shift detection');
+check('attendance.check_out_branch_id exists', cob[0]?.n === 1);
+
+const flagCheck = await q(`
+  select pg_get_constraintdef(oid) as def from pg_constraint
+  where conrelid = 'public.attendance'::regclass
+    and conname = 'attendance_flag_reason_check';
+`);
+check(
+  'branch_mismatch is an allowed flag reason',
+  /branch_mismatch/.test(flagCheck[0]?.def ?? ''),
+);
+
 // --- realtime -------------------------------------------------------------
 const pub = await q(`
   select tablename from pg_publication_tables

@@ -21,10 +21,28 @@ describe('toCsv', () => {
 
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBe(
-      'Employee,Email,Branch,Method,Check in,Check out,Hours worked,Remote reason',
+      'Employee,Email,Branch,Checked out at,Method,Check in,Check out,Hours worked,Remote reason',
     );
     expect(lines[1]).toContain('Ada Lovelace');
     expect(lines[1]).toContain('8.50');
+  });
+
+  it('leaves "checked out at" empty for an ordinary same-branch shift', () => {
+    // Repeating the branch on every row would bury the split shifts, which are
+    // the only reason the column exists.
+    const row = toCsv([entry()]).trim().split('\r\n')[1];
+    expect(row).toBe(
+      'Ada Lovelace,ada@example.com,Downtown Branch,,QR + GPS,' +
+        '2026-08-22T09:00:00.000Z,2026-08-22T17:30:00.000Z,8.50,',
+    );
+  });
+
+  it('names the closing branch when a shift was split across two', () => {
+    const row = toCsv([entry({ checkOutBranchName: 'DHA Main Branch' })])
+      .trim()
+      .split('\r\n')[1];
+
+    expect(row).toContain('Downtown Branch,DHA Main Branch,QR + GPS');
   });
 
   it('quotes fields containing commas, quotes, or newlines', () => {

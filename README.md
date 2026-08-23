@@ -202,6 +202,7 @@ Requires `SUPABASE_ACCESS_TOKEN` in `.env.local`; the running app never reads it
 | `npm run db:apply` | Apply migrations + seed to Supabase |
 | `npm run db:verify` | Assert RLS, policies, grants, realtime and seed are correct |
 | `npm run db:bootstrap-admin -- <email> [name]` | Create/promote the first HR admin |
+| `npm run db:set-role -- <email> <role>` | Promote/demote out-of-band; refuses to remove the last admin |
 | `npm run auth:configure -- <site-url>` | Point Supabase Auth emails at a deployment |
 | `npm run smoke -- <email> <password>` | End-to-end test against a running server |
 
@@ -333,10 +334,76 @@ The 2-day claim limit is enforced in `src/lib/attendance/remote-claim.ts`, calle
 from the API route. The form's `min`/`max` attributes are a convenience only and
 are assumed to be bypassable.
 
+### Edge cases the review queue depends on
+
+**A shift closed at a different branch is flagged, not silently accepted.**
+Scanning in at one branch and out at another used to record a clean shift
+attributed entirely to the first: both scans sit inside their own geofences, so
+nothing objected — and impossible-travel needs >250 km/h, while the Multan
+branches are a few km apart across a shift lasting hours. Check-out now compares
+the scanned branch against the one the shift was opened at, stores
+`check_out_branch_id`, and raises `branch_mismatch`. HR sees both branch names;
+the CSV gains a "Checked out at" column, filled in only when the two differ.
+
+**An open shift cannot be reviewed.** Reviewing before check-out corrupted the
+record either way. Declining dropped the row out of every open-shift lookup
+(they all filter on `approved`/`flagged`, as does the partial unique index), so
+the employee could never check out — the row stranded with a null
+`check_out_time`, and a second shift silently startable. Approving was undone
+moments later if the check-out raised a flag: the row flipped back to `flagged`
+while keeping the reviewer's stamp, re-entering the queue looking handled.
+Remote requests are exempt — they have no live shift to close.
+
+**A flagged shift that gets checked out stays flagged.** This was already
+correct and still is: closing a shift never launders it into `approved`, and
+reports count only `approved`, so a flagged shift earns nothing until HR acts.
+
+**HR reviewing their own record is allowed, but never invisible.** With a single
+HR administrator there is often nobody else, so blocking it outright would
+deadlock. Instead the review card warns before the click, the response is
+stamped `selfReview`, and the audit log marks the entry **SELF**.
+
+**One HR admin cannot demote or deactivate another.** Self-demotion was already
+blocked, which stops you locking yourself out — but not the likelier version:
+you promote a colleague and they remove you. A flat tier where every admin can
+remove every other admin has no safe resting state. Removing an administrator is
+now deliberately out-of-band:
+
+```bash
+npm run db:set-role -- someone@example.com employee
+```
+
+That script refuses to demote the last active administrator, and writes to the
+audit log like any other role change.
+
+### Notifications
+
+In-app, via the bell in the header and `/notifications`. Employees are told when
+a record is approved, declined, or flagged; HR is told about new flags and new
+remote requests. Nothing told anyone anything before — a declined remote request
+was discovered by going and looking.
+
+Delivery goes through one dispatcher (`src/lib/notify.ts`) with an email channel
+behind `NOTIFY_EMAIL=on` plus `SMTP_URL`. The transport is a stub today, because
+this Supabase project cannot send custom email without SMTP; when it can, that
+one function is the only thing that changes.
+
+---
+
 ### Security model
 
-- RLS is enabled on every table. Staff can read and insert only their own
-  attendance; only HR can update rows or manage branches and employees.
+- **The API roles hold no write privileges at all.** `anon` and `authenticated`
+  can SELECT and nothing else, on every table. This is the important one, and it
+  closes a real hole: Supabase grants full CRUD on `public` tables by default
+  and leans on RLS, but the insert policy constrained only *whose* row it was —
+  not the status, method or times. Any signed-in employee could POST an
+  already-`approved` eight-hour shift straight to PostgREST with the publishable
+  key from the page source, skipping the QR code, the geofence, the spoofing
+  checks and the review queue, landing directly in the payroll CSV. Every write
+  in this app goes through an API route holding the service role, so the roles
+  never needed those grants. `npm run db:verify` asserts they are still gone.
+- RLS is enabled on every table, as a second, independent gate. Grants and
+  policies are checked separately, so a restored grant still meets a policy.
 - Role checks go through `private.is_hr_admin()`, a `SECURITY DEFINER` function
   in an unexposed schema. This is necessary because an RLS policy on `employees`
   cannot itself select from `employees` without recursing. `EXECUTE` is revoked
@@ -347,6 +414,25 @@ are assumed to be bypassable.
   reads branch data through the `branches_public` view.
 - CSV exports escape leading `=`, `+`, `-`, and `@` so a crafted "remote reason"
   cannot execute as a formula when HR opens the file in Excel.
+- `qr_secret` is also **unwritable**. It was previously covered by a blanket
+  `grant update on branches`, so an HR admin could set a branch's signing secret
+  to a chosen value and mint QR tokens that verify — defeating the whole point
+  of per-branch secrets.
+- Every privileged action is written to `audit_log`: approvals, declines, role
+  changes, activations, branch edits, QR rotations. Append-only by construction
+  — no API role holds INSERT, and there is no UPDATE or DELETE policy at all.
+  Visible at **HR → Audit**.
+- The app's own endpoints are rate limited (check-in, check-out, remote
+  requests, invites), counted in Postgres rather than in memory because
+  serverless instances do not share state. The limiter fails *open*: a broken
+  counter must not stop a workforce clocking in. Sign-in and password reset are
+  not covered here — those go from the browser straight to Supabase Auth, which
+  applies its own limits.
+- Response headers set a CSP, HSTS, `X-Frame-Options: DENY`, `Referrer-Policy`,
+  and a `Permissions-Policy` that allows only camera and geolocation.
+  `script-src` keeps `'unsafe-inline'` because Next.js bootstraps hydration with
+  inline scripts; removing it means per-request nonces in the proxy, which is a
+  deliberate change rather than a silent one.
 
 ---
 
@@ -363,6 +449,7 @@ src/
     api/
       attendance/     check-in, check-out, remote  — all business logic
       hr/             review, branches + QR images, employees, CSV export
+      notifications/  mark-read endpoint
     auth/
       confirm/         server-side token_hash exchange (custom templates)
       callback/        browser-side fragment rescue (free-tier fallback)
@@ -372,6 +459,9 @@ src/
   components/         Logo, AppHeader, StatusBadge, QrScanner
   lib/
     attendance/       detect.ts (spoofing), remote-claim.ts, report.ts
+    audit.ts          append-only record of privileged actions
+    notify.ts         in-app notifications + stubbed email channel
+    rate-limit.ts     Postgres-backed fixed-window throttling
     supabase/         browser client, server client, admin client, session
     geo.ts            Haversine + speed maths
     geolocation.ts    client GPS capture and browser-side spoof signals

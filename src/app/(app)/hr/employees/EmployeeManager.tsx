@@ -156,6 +156,12 @@ export function EmployeeManager({
           <tbody>
             {employees.map((emp) => {
               const isSelf = emp.id === currentUserId;
+              // One administrator may not strip another's access — the API
+              // refuses it, so the controls say so up front rather than letting
+              // the click fail. Removing an admin is out-of-band:
+              // `npm run db:set-role -- <email> employee`.
+              const isOtherAdmin = !isSelf && emp.role === 'hr_admin';
+              const locked = isSelf || isOtherAdmin;
               return (
                 <tr key={emp.id} className="border-b border-line last:border-0">
                   <td className="px-4 py-3">
@@ -164,6 +170,14 @@ export function EmployeeManager({
                     </span>
                     {isSelf && (
                       <span className="ml-2 text-xs text-ink-faint">(you)</span>
+                    )}
+                    {isOtherAdmin && (
+                      <span
+                        className="ml-2 text-xs text-ink-faint"
+                        title="Administrators can only be demoted with npm run db:set-role"
+                      >
+                        (administrator)
+                      </span>
                     )}
                     <span className="block text-xs text-ink-faint">
                       {emp.email}
@@ -174,7 +188,7 @@ export function EmployeeManager({
                       aria-label={`Role for ${emp.full_name}`}
                       className="field text-sm"
                       value={emp.role}
-                      disabled={busyId === emp.id || isSelf}
+                      disabled={busyId === emp.id || locked}
                       onChange={(e) =>
                         update(emp.id, { role: e.target.value as Role })
                       }
@@ -208,7 +222,7 @@ export function EmployeeManager({
                     <button
                       type="button"
                       className={emp.active ? 'btn-danger' : 'btn-secondary'}
-                      disabled={busyId === emp.id || isSelf}
+                      disabled={busyId === emp.id || locked}
                       onClick={() => update(emp.id, { active: !emp.active })}
                     >
                       {emp.active ? 'Deactivate' : 'Reactivate'}
