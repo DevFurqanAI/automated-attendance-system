@@ -214,6 +214,76 @@ const badToken = await fetch(`${baseUrl}/api/attendance/check-in`, {
 });
 check('forged token rejected', badToken.status === 400, `got ${badToken.status}`);
 
+console.log('\nEmailed-link flow (anonymous)');
+
+/** Same as get(), but with no session cookie — as a mail client arrives. */
+async function getAnon(path) {
+  const r = await fetch(`${baseUrl}${path}`, { redirect: 'manual' });
+  return {
+    status: r.status,
+    location: r.headers.get('location') ?? '',
+    body: r.status === 200 ? await r.text() : '',
+  };
+}
+
+const confirmBare = await getAnon('/auth/confirm');
+check(
+  '/auth/confirm without a token redirects',
+  confirmBare.status === 307 || confirmBare.status === 302,
+  `got ${confirmBare.status}`,
+);
+check(
+  'it says the link was incomplete',
+  confirmBare.location.includes('/login?error=link_incomplete'),
+  confirmBare.location,
+);
+
+const confirmBad = await getAnon('/auth/confirm?token_hash=not-a-real-hash&type=invite');
+check(
+  'a forged token_hash is refused',
+  confirmBad.location.includes('/login?error=link_invalid'),
+  confirmBad.location,
+);
+
+// An open redirect here would let a phishing link borrow the real domain.
+const confirmEvil = await getAnon(
+  '/auth/confirm?token_hash=x&type=invite&next=https://evil.example.com',
+);
+check(
+  'an absolute `next` cannot escape the site',
+  !confirmEvil.location.includes('evil.example.com'),
+  confirmEvil.location,
+);
+
+const setPassword = await getAnon('/auth/set-password');
+check(
+  '/auth/set-password is not reachable without a session',
+  setPassword.location.includes('/login'),
+  `${setPassword.status} ${setPassword.location}`,
+);
+
+// Where Supabase's stock (free-tier) email links land. It has to render for
+// anonymous visitors: the session is in the fragment, which only the browser
+// can see, so the server necessarily treats this request as signed out.
+const callback = await getAnon('/auth/callback');
+check('/auth/callback returns 200 anonymously', callback.status === 200, `got ${callback.status}`);
+check('it shows a signing-in state', callback.body.includes('Signing you in'));
+
+const forgot = await getAnon('/auth/forgot-password');
+check('/auth/forgot-password returns 200', forgot.status === 200, `got ${forgot.status}`);
+check('it asks for the work email', forgot.body.includes('Work email'));
+
+const loginPage = await getAnon('/login?error=link_invalid');
+check('/login returns 200', loginPage.status === 200, `got ${loginPage.status}`);
+check(
+  'the login page explains a dead link',
+  loginPage.body.includes('already been used'),
+);
+check(
+  'and offers a password reset',
+  loginPage.body.includes('/auth/forgot-password'),
+);
+
 // Clean up the row this test created so the review queue starts empty.
 if (acceptedBody.id) {
   const admin = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY, {

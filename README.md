@@ -118,8 +118,69 @@ vercel env add SUPABASE_SERVICE_ROLE_KEY
 vercel --prod
 ```
 
-Then in Supabase → **Authentication → URL Configuration**, set the Site URL to
-your Vercel domain so invite and password-reset emails link to the right place.
+### Point Supabase Auth at the deployment
+
+```bash
+npm run auth:configure -- https://your-app.vercel.app
+```
+
+Do this once per deployment domain. It is not optional — skipping it is the
+single most confusing failure this project has, because everything looks fine
+until a real employee clicks a real invite email and lands on a login page,
+signed out, with no explanation. Two defaults cause that:
+
+- **`site_url` is `http://localhost:3000` on a fresh project.** It is what
+  `{{ .SiteURL }}` expands to in every outgoing email, so invitations sent from
+  production point at a machine the recipient does not have.
+- **The stock email templates link to `{{ .ConfirmationURL }}`**, which returns
+  the session in a URL *fragment* (`#access_token=...`). Fragments are never
+  sent to the server, so a server-rendered app cannot see them.
+
+The script sets `site_url`, fills the redirect allow-list, and then takes
+whichever of two routes your Supabase plan allows. It reads the settings back
+afterwards and fails loudly if any of them did not stick.
+
+**Paid tier, or free tier with custom SMTP — the server-side flow.** The
+script replaces the invite / recovery / confirmation / magic-link templates
+with ones linking to `/auth/confirm?token_hash=...`, which
+[`src/app/auth/confirm/route.ts`](src/app/auth/confirm/route.ts) exchanges for a
+cookie session on the server. No token ever reaches the browser's address bar.
+`site_url` stays the bare origin.
+
+**Free tier with the default email provider — the browser fallback.** Supabase
+refuses template edits outright:
+
+```
+Email template modification is not available for free tier projects
+using the default email provider.
+```
+
+So the fragment is unavoidable, and the script points `site_url` at
+`/auth/callback` instead — a page that reads the fragment in the browser,
+writes the session into cookies, and strips the token from the URL before
+anything can log it. It is strictly worse than the server-side flow (the access
+token briefly exists in the address bar, and therefore in browser history), but
+it is the only thing that works on that plan. Configure custom SMTP under
+**Auth → Emails → SMTP Settings** and re-run the script to switch over; the
+`/auth/confirm` route is already there waiting.
+
+Either way the destination is the same: `/auth/set-password`, where an invited
+employee chooses their password.
+
+Add preview deployments to the allow-list by passing extra origins, and use
+`--dry-run` to see the current settings without changing them:
+
+```bash
+npm run auth:configure -- https://your-app.vercel.app "https://*-your-team.vercel.app"
+npm run auth:configure -- https://your-app.vercel.app --dry-run
+```
+
+Note that `{{ .SiteURL }}` is a single value: once it points at production,
+invites triggered from a dev server still email production links. That is the
+right trade — real employees get working links — but it means invite testing
+happens against the deployed app.
+
+Requires `SUPABASE_ACCESS_TOKEN` in `.env.local`; the running app never reads it.
 
 > Camera and GPS both require a secure context. Vercel serves HTTPS, so this
 > works in production; for local testing on a real phone use `next dev` behind
@@ -136,15 +197,62 @@ your Vercel domain so invite and password-reset emails link to the right place.
 | `npm run build` | Production build |
 | `npm test` | Unit tests (geofencing, QR tokens, claim window, CSV, spoofing checks) |
 | `npm run lint` | ESLint |
+| `npm run typecheck` | `tsc --noEmit` |
 | `npm run icons` | Regenerate PWA icons from `public/icon-512.png` |
 | `npm run db:apply` | Apply migrations + seed to Supabase |
 | `npm run db:verify` | Assert RLS, policies, grants, realtime and seed are correct |
 | `npm run db:bootstrap-admin -- <email> [name]` | Create/promote the first HR admin |
+| `npm run auth:configure -- <site-url>` | Point Supabase Auth emails at a deployment |
 | `npm run smoke -- <email> <password>` | End-to-end test against a running server |
 
 `npm run smoke` signs in for real and asserts on every page, the QR image
 endpoint, the CSV export, and — importantly — that a claim older than two days
 is rejected server-side and that a pending claim never reaches a report.
+
+---
+
+## Troubleshooting
+
+**Signed in, but every page except `/` returns 404 (dev only).**
+Something ran `next build` while `next dev` was live. They used to share the
+`.next` directory, so the build overwrote the manifests the dev server was
+reading: routes it had already compiled kept working, everything else 404'd,
+and nothing appeared in the log.
+
+`next.config.ts` now points dev at `.next-dev` and leaves production on
+`.next`, so the two cannot collide. If you somehow still hit it:
+
+```bash
+rm -rf .next .next-dev && npm run dev
+```
+
+Note that `eslint.config.mjs` *replaces* the framework's default ignore list
+rather than extending it — any new build directory has to be added there too,
+or ESLint will start linting generated bundles.
+
+**The invite email arrives, but the link lands on the login page, signed out.**
+Supabase Auth is still pointing somewhere else. Run
+`npm run auth:configure -- https://your-app.vercel.app`, then send a fresh
+invite — the old link was built from the old settings and cannot be salvaged.
+Check the script's output for which flow it landed on: `/auth/confirm` means
+custom templates were installed, `/auth/callback` means the free tier forced
+the browser fallback.
+`npm run auth:configure -- <url> --dry-run` prints the current settings without
+touching them.
+
+**An employee says their link "does not work".** Every emailed link is
+single-use and expires an hour after it is sent, so a second click on the same
+link fails by design. `/auth/confirm` sends them to
+`/login?error=link_invalid`, which explains that and offers a self-service
+reset at `/auth/forgot-password`. Re-inviting from HR → Employees also works.
+
+**Camera doesn't start on a phone.** The page must be served over HTTPS.
+`http://<laptop-ip>:3000` silently refuses camera access; use a tunnel or
+deploy. `localhost` is exempt, so a laptop webcam works in dev.
+
+**Check-in comes back `flagged — out of range`.** Working as designed: you are
+not within the branch's geofence. The record is still saved and appears in the
+HR review queue.
 
 ---
 
@@ -255,6 +363,11 @@ src/
     api/
       attendance/     check-in, check-out, remote  — all business logic
       hr/             review, branches + QR images, employees, CSV export
+    auth/
+      confirm/         server-side token_hash exchange (custom templates)
+      callback/        browser-side fragment rescue (free-tier fallback)
+      set-password/    where invite and reset links land
+      forgot-password/ self-service reset request
     login/
   components/         Logo, AppHeader, StatusBadge, QrScanner
   lib/
