@@ -12,6 +12,9 @@ import type { SessionUser } from '@/lib/supabase/server';
 export type AuditAction =
   | 'attendance.approve'
   | 'attendance.decline'
+  | 'leave.approve'
+  | 'leave.decline'
+  | 'absence.reversed'
   | 'employee.invite'
   | 'employee.role_change'
   | 'employee.activate'
@@ -24,7 +27,7 @@ export type AuditAction =
 
 export interface AuditEntry {
   action: AuditAction;
-  entityType: 'attendance' | 'employee' | 'branch';
+  entityType: 'attendance' | 'employee' | 'branch' | 'leave_request';
   entityId?: string | null;
   /** The employee this action was *about*, when that differs from the entity. */
   subjectId?: string | null;
@@ -66,6 +69,9 @@ export async function recordAudit(
 export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   'attendance.approve': 'Approved attendance',
   'attendance.decline': 'Declined attendance',
+  'leave.approve': 'Approved leave request',
+  'leave.decline': 'Declined leave request',
+  'absence.reversed': 'Reversed a marked absence',
   'employee.invite': 'Invited employee',
   'employee.role_change': 'Changed role',
   'employee.activate': 'Reactivated employee',
@@ -83,7 +89,7 @@ export interface AuditRow {
   actor_name: string;
   actor_email: string;
   action: AuditAction;
-  entity_type: 'attendance' | 'employee' | 'branch';
+  entity_type: 'attendance' | 'employee' | 'branch' | 'leave_request';
   entity_id: string | null;
   subject_id: string | null;
   self_action: boolean;

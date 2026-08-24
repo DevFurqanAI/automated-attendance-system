@@ -20,6 +20,9 @@ export type NotificationKind =
   | 'attendance_declined'
   | 'attendance_flagged'
   | 'remote_submitted'
+  | 'leave_submitted'
+  | 'leave_approved'
+  | 'leave_declined'
   | 'review_needed'
   | 'role_changed'
   | 'account_deactivated';
@@ -29,7 +32,7 @@ export interface NotificationInput {
   kind: NotificationKind;
   title: string;
   body?: string | null;
-  entityType?: 'attendance' | 'employee' | 'branch' | null;
+  entityType?: 'attendance' | 'employee' | 'branch' | 'leave_request' | null;
   entityId?: string | null;
 }
 
@@ -39,7 +42,7 @@ export interface NotificationRow {
   kind: NotificationKind;
   title: string;
   body: string | null;
-  entity_type: 'attendance' | 'employee' | 'branch' | null;
+  entity_type: 'attendance' | 'employee' | 'branch' | 'leave_request' | null;
   entity_id: string | null;
   read_at: string | null;
   created_at: string;
@@ -75,9 +78,9 @@ export async function notify(
 }
 
 /**
- * Every active HR administrator — the recipients for anything landing in the
- * review queue. Excludes `excludeId` so an HR admin who files their own remote
- * request is not told about it.
+ * Every active HR administrator, at any tier (hr_admin or super_admin) — the
+ * recipients for anything landing in the review queue. Excludes `excludeId`
+ * so an HR admin who files their own remote request is not told about it.
  */
 export async function hrAdminIds(
   admin: SupabaseClient,
@@ -86,7 +89,7 @@ export async function hrAdminIds(
   const { data, error } = await admin
     .from('employees')
     .select('id')
-    .eq('role', 'hr_admin')
+    .in('role', ['hr_admin', 'super_admin'])
     .eq('active', true)
     .returns<{ id: string }[]>();
 
@@ -95,6 +98,54 @@ export async function hrAdminIds(
     return [];
   }
   return (data ?? []).map((r) => r.id).filter((id) => id !== excludeId);
+}
+
+/**
+ * The HR admin(s) who should be notified about `employeeId` — their assigned
+ * branch's HR admin(s) if scoped, or every HR admin if the employee has no
+ * default branch — plus every super_admin. Mirrors the RLS visibility rule
+ * in private.hr_visible_employee_ids() so "who gets notified" and "who can
+ * see it in the review queue" never disagree.
+ */
+export async function scopedHrRecipientIds(
+  admin: SupabaseClient,
+  employeeId: string,
+  excludeId?: string,
+): Promise<string[]> {
+  const { data: employee } = await admin
+    .from('employees')
+    .select('default_branch_id')
+    .eq('id', employeeId)
+    .single<{ default_branch_id: string | null }>();
+
+  const { data: admins, error } = await admin
+    .from('employees')
+    .select('id, role')
+    .in('role', ['hr_admin', 'super_admin'])
+    .eq('active', true)
+    .returns<{ id: string; role: string }[]>();
+
+  if (error || !admins) {
+    console.error(`[notify] could not list HR recipients: ${error?.message}`);
+    return [];
+  }
+
+  if (!employee || employee.default_branch_id === null) {
+    return admins.map((a) => a.id).filter((id) => id !== excludeId);
+  }
+
+  const { data: assignments } = await admin
+    .from('hr_branch_assignments')
+    .select('hr_admin_id')
+    .eq('branch_id', employee.default_branch_id)
+    .returns<{ hr_admin_id: string }[]>();
+
+  const scopedIds = new Set((assignments ?? []).map((a) => a.hr_admin_id));
+
+  return admins
+    .filter((a) => a.role === 'super_admin' || scopedIds.has(a.id))
+    .map((a) => a.id)
+    .filter((id) => id !== excludeId);
 }
 
 // ---------------------------------------------------------------------------
