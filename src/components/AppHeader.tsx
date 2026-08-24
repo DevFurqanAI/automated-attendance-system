@@ -90,7 +90,7 @@ export function AppHeader({
           <Logo />
         </Link>
 
-        <nav className="hidden items-center gap-0.5 overflow-x-auto lg:flex">
+        <nav className="hidden items-center gap-0.5 lg:flex">
           {PRIMARY_NAV.map((item) => (
             <Link
               key={item.href}
