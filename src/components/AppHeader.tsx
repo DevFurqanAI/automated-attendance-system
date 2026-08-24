@@ -10,18 +10,21 @@ import type { Role } from '@/lib/types';
 interface NavItem {
   href: string;
   label: string;
-  hrOnly?: boolean;
 }
 
-const NAV: NavItem[] = [
+const PRIMARY_NAV: NavItem[] = [
   { href: '/check-in', label: 'Check in' },
   { href: '/remote', label: 'Remote' },
+  { href: '/leave', label: 'Leave' },
   { href: '/history', label: 'My history' },
-  { href: '/hr', label: 'Review', hrOnly: true },
-  { href: '/hr/reports', label: 'Reports', hrOnly: true },
-  { href: '/hr/branches', label: 'Branches', hrOnly: true },
-  { href: '/hr/employees', label: 'Employees', hrOnly: true },
-  { href: '/hr/audit', label: 'Audit', hrOnly: true },
+];
+
+const HR_NAV: NavItem[] = [
+  { href: '/hr', label: 'Review' },
+  { href: '/hr/reports', label: 'Reports' },
+  { href: '/hr/branches', label: 'Branches' },
+  { href: '/hr/employees', label: 'Employees' },
+  { href: '/hr/audit', label: 'Audit' },
 ];
 
 /**
@@ -65,9 +68,10 @@ export function AppHeader({
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [hrMenuOpen, setHrMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
 
-  const items = NAV.filter((i) => !i.hrOnly || role === 'hr_admin');
+  const isHr = role === 'hr_admin' || role === 'super_admin';
 
   async function signOut() {
     setSigningOut(true);
@@ -87,7 +91,7 @@ export function AppHeader({
         </Link>
 
         <nav className="hidden items-center gap-0.5 overflow-x-auto lg:flex">
-          {items.map((item) => (
+          {PRIMARY_NAV.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -101,6 +105,44 @@ export function AppHeader({
               {item.label}
             </Link>
           ))}
+
+          {isHr && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setHrMenuOpen((v) => !v)}
+                aria-expanded={hrMenuOpen}
+                className={`shrink-0 whitespace-nowrap px-2.5 py-2 text-sm font-semibold transition-colors ${
+                  HR_NAV.some((item) => isActive(item.href))
+                    ? 'bg-brand-primary-soft text-brand-primary'
+                    : 'text-ink-muted hover:text-ink'
+                }`}
+              >
+                HR ▾
+              </button>
+              {hrMenuOpen && (
+                <div
+                  className="absolute left-0 top-full z-20 mt-1 min-w-40 border border-line bg-surface py-1 shadow-lg"
+                  onMouseLeave={() => setHrMenuOpen(false)}
+                >
+                  {HR_NAV.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setHrMenuOpen(false)}
+                      className={`block px-3 py-2 text-sm font-semibold ${
+                        isActive(item.href)
+                          ? 'bg-brand-primary-soft text-brand-primary'
+                          : 'text-ink-muted hover:bg-surface-muted hover:text-ink'
+                      }`}
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </nav>
 
         <div className="hidden shrink-0 items-center gap-3 lg:flex">
@@ -132,7 +174,7 @@ export function AppHeader({
 
       {open && (
         <div className="border-t border-line px-4 py-2 lg:hidden">
-          {items.map((item) => (
+          {[...PRIMARY_NAV, ...(isHr ? HR_NAV : [])].map((item) => (
             <Link
               key={item.href}
               href={item.href}
