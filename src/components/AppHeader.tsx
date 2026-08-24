@@ -86,13 +86,13 @@ export function AppHeader({
           <Logo />
         </Link>
 
-        <nav className="hidden items-center gap-1 md:flex">
+        <nav className="hidden items-center gap-0.5 overflow-x-auto lg:flex">
           {items.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               aria-current={isActive(item.href) ? 'page' : undefined}
-              className={`px-3 py-2 text-sm font-semibold transition-colors ${
+              className={`shrink-0 whitespace-nowrap px-2.5 py-2 text-sm font-semibold transition-colors ${
                 isActive(item.href)
                   ? 'bg-brand-primary-soft text-brand-primary'
                   : 'text-ink-muted hover:text-ink'
@@ -103,9 +103,9 @@ export function AppHeader({
           ))}
         </nav>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden shrink-0 items-center gap-3 lg:flex">
           <NotificationBell count={unreadCount} />
-          <span className="text-sm text-ink-muted">{name}</span>
+          <span className="whitespace-nowrap text-sm text-ink-muted">{name}</span>
           <button
             type="button"
             onClick={signOut}
@@ -116,7 +116,7 @@ export function AppHeader({
           </button>
         </div>
 
-        <div className="flex items-center gap-2 md:hidden">
+        <div className="flex items-center gap-2 lg:hidden">
           <NotificationBell count={unreadCount} />
           <button
             type="button"
@@ -131,7 +131,7 @@ export function AppHeader({
       </div>
 
       {open && (
-        <div className="border-t border-line px-4 py-2 md:hidden">
+        <div className="border-t border-line px-4 py-2 lg:hidden">
           {items.map((item) => (
             <Link
               key={item.href}

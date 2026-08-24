@@ -1,6 +1,12 @@
 /** Presentation helpers shared by the staff and HR views. */
 
+// All branches are in Pakistan, and pages render on the server where the
+// process timezone is not the viewer's — pin it explicitly, or a server
+// running in UTC would show every time shifted by 5 hours.
+const TZ = 'Asia/Karachi';
+
 const DATE_TIME = new Intl.DateTimeFormat('en-GB', {
+  timeZone: TZ,
   day: '2-digit',
   month: 'short',
   year: 'numeric',
@@ -10,12 +16,14 @@ const DATE_TIME = new Intl.DateTimeFormat('en-GB', {
 });
 
 const TIME = new Intl.DateTimeFormat('en-GB', {
+  timeZone: TZ,
   hour: '2-digit',
   minute: '2-digit',
   hour12: false,
 });
 
 const DATE = new Intl.DateTimeFormat('en-GB', {
+  timeZone: TZ,
   day: '2-digit',
   month: 'short',
   year: 'numeric',

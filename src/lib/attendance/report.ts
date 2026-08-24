@@ -54,7 +54,7 @@ export async function loadReport(
     .not('check_in_time', 'is', null)
     .gte('check_in_time', filters.from)
     .lte('check_in_time', filters.to)
-    .order('check_in_time', { ascending: true });
+    .order('check_in_time', { ascending: false });
 
   if (filters.employeeId) query = query.eq('employee_id', filters.employeeId);
   if (filters.branchId) query = query.eq('branch_id', filters.branchId);
