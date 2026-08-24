@@ -2,32 +2,37 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StatusBadge } from '@/components/StatusBadge';
-import { formatDateTime, toLocalInputValue } from '@/lib/format';
+import { formatDate, formatDateTime, toLocalInputValue } from '@/lib/format';
 import { createClient } from '@/lib/supabase/client';
 import {
   FLAG_REASON_LABELS,
   type AttendanceRow,
   type Branch,
+  type LeaveRequestRow,
 } from '@/lib/types';
 
-type Tab = 'all' | 'pending' | 'flagged';
+type Tab = 'all' | 'pending' | 'flagged' | 'leave';
 
 /**
- * The single HR review surface (spec §7.5): pending remote requests and flagged
- * QR check-ins in one place, updating live via Supabase Realtime so a second
- * reviewer's decision appears without a refresh.
+ * The single HR review surface (spec §7.5): pending remote requests, flagged
+ * QR check-ins, and pending leave requests in one place, updating live via
+ * Supabase Realtime so a second reviewer's decision appears without a
+ * refresh.
  */
 export function ReviewDashboard({
   initialRecords,
+  initialLeaveRequests,
   branches,
   currentUserId,
 }: {
   initialRecords: AttendanceRow[];
+  initialLeaveRequests: LeaveRequestRow[];
   branches: Branch[];
   /** The signed-in reviewer, so their own records can be called out. */
   currentUserId: string;
 }) {
   const [records, setRecords] = useState(initialRecords);
+  const [leaveRequests, setLeaveRequests] = useState(initialLeaveRequests);
   const [tab, setTab] = useState<Tab>('all');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +58,17 @@ export function ReviewDashboard({
     if (data) setRecords(data);
   }, [supabase]);
 
+  const refreshLeave = useCallback(async () => {
+    const { data } = await supabase
+      .from('leave_requests')
+      .select('*, employees:employee_id ( id, full_name, email )')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .returns<LeaveRequestRow[]>();
+
+    if (data) setLeaveRequests(data);
+  }, [supabase]);
+
   useEffect(() => {
     const channel = supabase
       .channel('hr-review-queue')
@@ -63,6 +79,13 @@ export function ReviewDashboard({
           refresh();
         },
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'leave_requests' },
+        () => {
+          refreshLeave();
+        },
+      )
       .subscribe((status) => {
         setLive(status === 'SUBSCRIBED');
       });
@@ -70,7 +93,7 @@ export function ReviewDashboard({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [supabase, refresh]);
+  }, [supabase, refresh, refreshLeave]);
 
   async function review(
     id: string,
@@ -95,6 +118,27 @@ export function ReviewDashboard({
 
     // Optimistic removal; the realtime event will reconcile anyway.
     setRecords((rows) => rows.filter((r) => r.id !== id));
+    setBusyId(null);
+  }
+
+  async function reviewLeave(id: string, action: 'approve' | 'decline') {
+    setBusyId(id);
+    setError(null);
+
+    const response = await fetch('/api/hr/leave/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      setError(data.error ?? 'Could not save that decision.');
+      setBusyId(null);
+      return;
+    }
+
+    setLeaveRequests((rows) => rows.filter((r) => r.id !== id));
     setBusyId(null);
   }
 
@@ -135,6 +179,9 @@ export function ReviewDashboard({
         <TabButton active={tab === 'flagged'} onClick={() => setTab('flagged')}>
           Flagged ({flagged.length})
         </TabButton>
+        <TabButton active={tab === 'leave'} onClick={() => setTab('leave')}>
+          Leave ({leaveRequests.length})
+        </TabButton>
       </div>
 
       {error && (
@@ -146,7 +193,25 @@ export function ReviewDashboard({
         </p>
       )}
 
-      {visible.length === 0 ? (
+      {tab === 'leave' ? (
+        leaveRequests.length === 0 ? (
+          <p className="card mt-5 p-10 text-center text-ink-muted">
+            Nothing to review. New requests appear here automatically.
+          </p>
+        ) : (
+          <ul className="mt-5 space-y-3">
+            {leaveRequests.map((row) => (
+              <LeaveCard
+                key={row.id}
+                row={row}
+                isOwnRecord={row.employee_id === currentUserId}
+                busy={busyId === row.id}
+                onReview={reviewLeave}
+              />
+            ))}
+          </ul>
+        )
+      ) : visible.length === 0 ? (
         <p className="card mt-5 p-10 text-center text-ink-muted">
           Nothing to review. New requests appear here automatically.
         </p>
@@ -165,6 +230,69 @@ export function ReviewDashboard({
         </ul>
       )}
     </div>
+  );
+}
+
+function LeaveCard({
+  row,
+  isOwnRecord,
+  busy,
+  onReview,
+}: {
+  row: LeaveRequestRow;
+  isOwnRecord: boolean;
+  busy: boolean;
+  onReview: (id: string, action: 'approve' | 'decline') => void;
+}) {
+  return (
+    <li className="card p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-bold text-brand-secondary">
+            {row.employees?.full_name ?? 'Unknown employee'}
+          </p>
+          <p className="text-sm text-ink-muted">{row.employees?.email}</p>
+        </div>
+        <StatusBadge status={row.status} />
+      </div>
+
+      <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+        <Field label="Dates">
+          {formatDate(row.from_date)}
+          {row.to_date !== row.from_date ? ` → ${formatDate(row.to_date)}` : ''}
+        </Field>
+        <Field label="Reason" className="sm:col-span-2">
+          {row.reason}
+        </Field>
+      </dl>
+
+      {isOwnRecord && (
+        <p className="mt-4 border-l-4 border-brand-primary bg-brand-primary-soft p-3 text-sm text-brand-secondary">
+          <span className="font-semibold">This is your own request.</span>{' '}
+          Approving or declining it will be recorded as a self-review in the
+          audit log.
+        </p>
+      )}
+
+      <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+        <button
+          type="button"
+          className="btn-primary sm:w-40"
+          disabled={busy}
+          onClick={() => onReview(row.id, 'approve')}
+        >
+          {busy ? 'Saving…' : 'Approve'}
+        </button>
+        <button
+          type="button"
+          className="btn-danger sm:w-40"
+          disabled={busy}
+          onClick={() => onReview(row.id, 'decline')}
+        >
+          Decline
+        </button>
+      </div>
+    </li>
   );
 }
 
