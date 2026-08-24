@@ -109,3 +109,21 @@ export const CALENDAR_DAY_KIND_LABELS: Record<CalendarDayKind, string> = {
 };
 
 export const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+
+export type LeaveStatus = 'pending' | 'approved' | 'declined';
+
+export interface LeaveRequest {
+  id: string;
+  employee_id: string;
+  from_date: string;
+  to_date: string;
+  reason: string;
+  status: LeaveStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+export interface LeaveRequestRow extends LeaveRequest {
+  employees: Pick<Employee, 'id' | 'full_name' | 'email'> | null;
+}
