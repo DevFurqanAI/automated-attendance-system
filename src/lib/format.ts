@@ -3,7 +3,7 @@
 // All branches are in Pakistan, and pages render on the server where the
 // process timezone is not the viewer's — pin it explicitly, or a server
 // running in UTC would show every time shifted by 5 hours.
-const TZ = 'Asia/Karachi';
+export const TZ = 'Asia/Karachi';
 
 const DATE_TIME = new Intl.DateTimeFormat('en-GB', {
   timeZone: TZ,
