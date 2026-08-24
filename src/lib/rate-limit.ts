@@ -33,6 +33,9 @@ export const RATE_LIMITS = {
   remote: { name: 'remote', limit: 10, windowSeconds: 3600 },
   /** Each invite sends an email, so this is also an anti-spam limit. */
   invite: { name: 'invite', limit: 30, windowSeconds: 3600 },
+  /** Filed by hand, rarely; the headroom is for a family emergency needing
+   *  a multi-day request plus a correction, not scripted abuse. */
+  leave: { name: 'leave', limit: 10, windowSeconds: 3600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**
