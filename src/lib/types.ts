@@ -127,3 +127,11 @@ export interface LeaveRequest {
 export interface LeaveRequestRow extends LeaveRequest {
   employees: Pick<Employee, 'id' | 'full_name' | 'email'> | null;
 }
+
+export interface Absence {
+  id: string;
+  employee_id: string;
+  branch_id: string | null;
+  date: string;
+  created_at: string;
+}
