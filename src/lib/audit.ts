@@ -19,7 +19,8 @@ export type AuditAction =
   | 'employee.branch_change'
   | 'branch.create'
   | 'branch.update'
-  | 'branch.qr_rotate';
+  | 'branch.qr_rotate'
+  | 'hr.branches_assigned';
 
 export interface AuditEntry {
   action: AuditAction;
@@ -73,6 +74,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   'branch.create': 'Created branch',
   'branch.update': 'Updated branch',
   'branch.qr_rotate': 'Rotated QR code',
+  'hr.branches_assigned': 'Updated HR branch assignments',
 };
 
 export interface AuditRow {

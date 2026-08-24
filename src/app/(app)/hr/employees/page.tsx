@@ -12,7 +12,7 @@ export default async function EmployeesPage() {
 
   const supabase = await createClient();
 
-  const [{ data: employees }, { data: branches }] = await Promise.all([
+  const [{ data: employees }, { data: branches }, { data: assignments }] = await Promise.all([
     supabase
       .from('employees')
       .select('*')
@@ -23,6 +23,10 @@ export default async function EmployeesPage() {
       .select('*')
       .order('name')
       .returns<Branch[]>(),
+    supabase
+      .from('hr_branch_assignments')
+      .select('hr_admin_id, branch_id')
+      .returns<{ hr_admin_id: string; branch_id: string }[]>(),
   ]);
 
   return (
@@ -30,6 +34,8 @@ export default async function EmployeesPage() {
       employees={employees ?? []}
       branches={branches ?? []}
       currentUserId={hr.id}
+      currentUserRole={hr.employee.role}
+      branchAssignments={assignments ?? []}
     />
   );
 }
