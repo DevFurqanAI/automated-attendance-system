@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { recordAudit } from '@/lib/audit';
+import { isEmployeeVisibleTo } from '@/lib/hr-scope';
 import { notify } from '@/lib/notify';
 import { RATE_LIMITS, checkRateLimit, tooManyRequests } from '@/lib/rate-limit';
 import { createAdminClient, getHrUser } from '@/lib/supabase/server';
@@ -101,30 +102,43 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'Employee not found.' }, { status: 404 });
   }
 
-  // One HR administrator may not strip another's access.
-  //
-  // Self-demotion was already blocked, which stops you locking yourself out —
-  // but not the more likely version: you promote a colleague, and they demote
-  // or deactivate YOU. A flat admin tier where everyone can remove everyone
-  // else has no safe resting state, and the system has no owner concept to
-  // appeal to.
-  //
-  // So removing an administrator is deliberately an out-of-band act, run by
-  // whoever holds the service-role key:
-  //     npm run db:set-role -- <email> employee
-  const removingAnAdmin =
-    target.role === 'hr_admin' &&
-    id !== hr.id &&
-    ((body.role !== undefined && body.role !== 'hr_admin') || body.active === false);
+  // Role changes and branch reassignment are super_admin-only — see
+  // docs/superpowers/specs/2026-08-24-absence-leave-hr-scoping-design.md
+  // "HR branch scoping". A scoped hr_admin keeps day-to-day management
+  // (activate/deactivate) for employees in their branches, checked below.
+  if (body.role !== undefined || body.defaultBranchId !== undefined) {
+    if (hr.employee.role !== 'super_admin') {
+      return NextResponse.json(
+        {
+          error:
+            "Only a super administrator can change an employee's role or " +
+            'default branch.',
+        },
+        { status: 403 },
+      );
+    }
+  }
 
-  if (removingAnAdmin) {
+  // Deactivating or reactivating an hr_admin/super_admin is always
+  // super_admin-only — the same "no admin can strip another's access"
+  // reasoning as before, now framed around the tier rather than a flat
+  // hr_admin/hr_admin check.
+  if (body.active !== undefined && target.role !== 'employee' && hr.employee.role !== 'super_admin') {
     return NextResponse.json(
       {
         error:
-          `${target.full_name} is an HR administrator. Administrators cannot be ` +
-          'demoted or deactivated from here — ask whoever administers the ' +
-          'database to run the set-role script.',
+          `${target.full_name} is an HR administrator. Only a super ` +
+          'administrator can activate or deactivate another administrator.',
       },
+      { status: 403 },
+    );
+  }
+
+  // A scoped hr_admin may only touch employees within their assigned
+  // branches (or branch-less employees).
+  if (hr.employee.role !== 'super_admin' && !(await isEmployeeVisibleTo(admin, hr, target))) {
+    return NextResponse.json(
+      { error: 'This employee is not in one of your assigned branches.' },
       { status: 403 },
     );
   }
@@ -132,14 +146,12 @@ export async function PATCH(request: Request) {
   const update: Record<string, unknown> = {};
 
   if (body.role !== undefined) {
-    if (body.role !== 'employee' && body.role !== 'hr_admin') {
+    if (body.role !== 'employee' && body.role !== 'hr_admin' && body.role !== 'super_admin') {
       return NextResponse.json({ error: 'Invalid role.' }, { status: 400 });
     }
-    // Guard against an HR admin removing their own last privileges and
-    // locking the whole company out of the review dashboard.
-    if (id === hr.id && body.role !== 'hr_admin') {
+    if (id === hr.id && body.role !== 'super_admin') {
       return NextResponse.json(
-        { error: 'You cannot remove your own HR administrator role.' },
+        { error: 'You cannot remove your own super administrator role.' },
         { status: 400 },
       );
     }
