@@ -102,6 +102,10 @@ check(
 const history = await get('/history');
 check('/history returns 200', history.status === 200, `got ${history.status}`);
 
+const leave = await get('/leave');
+check('/leave returns 200', leave.status === 200, `got ${leave.status}`);
+check('/leave renders the form', leave.body.includes('Request leave'));
+
 console.log('\nHR pages');
 
 const hr = await get('/hr');

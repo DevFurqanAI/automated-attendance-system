@@ -243,6 +243,57 @@ check(
     branches.every((b) => b.secret_len === 64),
 );
 
+// --- branch-scoped HR / leave / holidays / absences ------------------------
+const scopingTables = await q(`
+  select tablename, rowsecurity
+  from pg_tables
+  where schemaname = 'public'
+    and tablename in ('hr_branch_assignments', 'branch_calendar_days', 'leave_requests', 'absences')
+  order by tablename;
+`);
+console.log('\nHR scoping / leave / absence tables');
+for (const want of ['hr_branch_assignments', 'branch_calendar_days', 'leave_requests', 'absences']) {
+  const row = scopingTables.find((t) => t.tablename === want);
+  check(`${want} exists`, Boolean(row));
+  if (row) check(`${want} RLS enabled`, row.rowsecurity === true);
+}
+
+const scopingFns = await q(`
+  select p.proname
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'private'
+    and p.proname in (
+      'is_super_admin', 'hr_branch_ids', 'hr_visible_employee_ids',
+      'is_working_day', 'mark_daily_absences'
+    );
+`);
+console.log('\nBranch-scoping / schedule functions');
+for (const want of [
+  'is_super_admin',
+  'hr_branch_ids',
+  'hr_visible_employee_ids',
+  'is_working_day',
+  'mark_daily_absences',
+]) {
+  check(`private.${want} exists`, scopingFns.some((f) => f.proname === want));
+}
+
+const cronJob = await q(`
+  select jobname, active from cron.job where jobname = 'mark-daily-absences';
+`);
+console.log('\nNightly absence job');
+check('mark-daily-absences scheduled', cronJob.length === 1);
+check('mark-daily-absences active', cronJob[0]?.active === true);
+
+const roleCheck = await q(`
+  select pg_get_constraintdef(oid) as def from pg_constraint
+  where conrelid = 'public.employees'::regclass
+    and conname = 'employees_role_check';
+`);
+console.log('\nSuper-admin role tier');
+check('employees.role allows super_admin', /super_admin/.test(roleCheck[0]?.def ?? ''));
+
 console.log(
   failures === 0
     ? '\nAll checks passed.'
