@@ -206,6 +206,32 @@ export async function POST(request: Request) {
     },
   });
 
+  // A late-approved remote request can retroactively cover a date the
+  // nightly job already marked absent (see "Late reversal" in the design
+  // doc) — only relevant for remote requests, which carry a claimed date
+  // separate from submission time.
+  if (record.method === 'remote_request' && update.check_in_time) {
+    const coveredDate = new Date(update.check_in_time as string)
+      .toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+
+    const { data: reversed } = await admin
+      .from('absences')
+      .delete()
+      .eq('employee_id', record.employee_id)
+      .eq('date', coveredDate)
+      .select('date');
+
+    if (reversed && reversed.length > 0) {
+      await recordAudit(admin, hr, {
+        action: 'absence.reversed',
+        entityType: 'attendance',
+        entityId: id,
+        subjectId: record.employee_id,
+        detail: { dates: reversed.map((r) => r.date) },
+      });
+    }
+  }
+
   await notify(admin, [
     {
       recipientId: record.employee_id,
