@@ -18,6 +18,8 @@ export interface Branch {
   radius_meters: number;
   qr_version: number;
   created_at: string;
+  /** 0=Sunday..6=Saturday. This branch's default weekly off days. */
+  weekly_off_days: number[];
 }
 
 /** Only ever loaded server-side — carries the QR signing secret. */
@@ -31,6 +33,8 @@ export interface Employee {
   email: string;
   role: Role;
   default_branch_id: string | null;
+  /** Overrides the branch's weekly_off_days when set. Null = inherit. */
+  weekly_off_days: number[] | null;
   active: boolean;
   created_at: string;
 }
@@ -87,3 +91,21 @@ export const REMOTE_REASONS = [
 
 /** How far back a remote request may claim work, per spec §7.4. */
 export const REMOTE_CLAIM_MAX_AGE_DAYS = 2;
+
+export type CalendarDayKind = 'holiday' | 'mandatory_workday';
+
+export interface BranchCalendarDay {
+  id: string;
+  branch_id: string;
+  date: string;
+  kind: CalendarDayKind;
+  label: string | null;
+  created_at: string;
+}
+
+export const CALENDAR_DAY_KIND_LABELS: Record<CalendarDayKind, string> = {
+  holiday: 'Holiday',
+  mandatory_workday: 'Mandatory workday',
+};
+
+export const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
