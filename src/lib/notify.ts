@@ -5,10 +5,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  * Notification dispatch.
  *
  * One entry point, two channels. The in-app channel is the row in
- * `public.notifications` and always runs. The email channel is a no-op until
- * an SMTP transport is configured — this Supabase project is on a plan that
- * cannot send custom email (see scripts/configure-auth.mjs), so the shape is
- * here and the transport is not.
+ * `public.notifications` and always runs. The email channel sends through
+ * Resend (see the "Email channel" section below) and is off unless
+ * NOTIFY_EMAIL=on and RESEND_API_KEY are both set — this Supabase project is
+ * on a plan that cannot send its own custom auth email (see
+ * scripts/configure-auth.mjs), which is unrelated to this app-level channel.
  *
  * Deliberately never throws. A notification is a side effect of an action the
  * user asked for; failing to deliver one must not fail the approval, the role
@@ -149,25 +150,42 @@ export async function scopedHrRecipientIds(
 }
 
 // ---------------------------------------------------------------------------
-// Email channel
+// Email channel — Resend (https://resend.com)
 // ---------------------------------------------------------------------------
 
 /**
  * Whether email delivery is switched on. Off unless a transport is explicitly
  * configured, so a half-set-up environment silently does the right thing (in-app
  * only) instead of throwing on every action.
+ *
+ * NOTIFY_FROM_EMAIL defaults to Resend's shared test sender, which only
+ * delivers to the address on the Resend account itself — real delivery to
+ * every recipient requires a verified domain and NOTIFY_FROM_EMAIL pointing
+ * at an address on it (see https://resend.com/domains).
  */
 export function emailEnabled(): boolean {
-  return process.env.NOTIFY_EMAIL === 'on' && Boolean(process.env.SMTP_URL);
+  return process.env.NOTIFY_EMAIL === 'on' && Boolean(process.env.RESEND_API_KEY);
+}
+
+let resendClient: import('resend').Resend | null = null;
+
+async function getResendClient(): Promise<import('resend').Resend> {
+  if (!resendClient) {
+    const { Resend } = await import('resend');
+    resendClient = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resendClient;
 }
 
 /**
- * Mirrors notifications out over email.
+ * Mirrors notifications out over email via Resend. Sent one call per
+ * recipient rather than batched — Resend's batch endpoint shares one
+ * from/subject across the whole batch, which does not fit these being
+ * different notifications with different titles.
  *
- * Intentionally a stub with a real signature. When SMTP arrives, this is the
- * only function that changes: resolve each recipient's address, render the
- * same title/body, hand it to the transport. Everything upstream already
- * passes what it needs.
+ * Never throws: a failed send is logged and the next recipient still gets
+ * theirs, matching the "never blocks the action that caused it" contract on
+ * `notify()`.
  */
 async function sendByEmail(
   admin: SupabaseClient,
@@ -189,17 +207,25 @@ async function sendByEmail(
   }
 
   const byId = new Map((data ?? []).map((r) => [r.id, r]));
+  const from = process.env.NOTIFY_FROM_EMAIL ?? 'onboarding@resend.dev';
+  const resend = await getResendClient();
 
   for (const entry of entries) {
     const recipient = byId.get(entry.recipientId);
     if (!recipient) continue;
 
-    // TODO(smtp): hand to the transport once one is configured. Logged rather
-    // than silently dropped so a misconfigured environment is visible in the
-    // Vercel logs instead of looking like delivery.
-    console.info(
-      `[notify:email] would send "${entry.title}" to ${recipient.email} ` +
-        '(no transport configured)',
-    );
+    const { error: sendError } = await resend.emails.send({
+      from,
+      to: recipient.email,
+      subject: entry.title,
+      text: entry.body ?? entry.title,
+    });
+
+    if (sendError) {
+      console.error(
+        `[notify:email] failed to send "${entry.title}" to ${recipient.email}: ` +
+          sendError.message,
+      );
+    }
   }
 }

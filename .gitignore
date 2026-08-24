@@ -50,3 +50,6 @@ next-env.d.ts
 # check-in factor). Treat them like credentials; never commit them.
 /qr-codes/
 *-qr.png
+
+.vercel
+.env*
