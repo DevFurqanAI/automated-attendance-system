@@ -82,9 +82,18 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   };
 }
 
-/** Same as getSessionUser, but also asserts the HR admin role. */
+/** Same as getSessionUser, but also asserts HR-level access (hr_admin or super_admin). */
 export async function getHrUser(): Promise<SessionUser | null> {
   const user = await getSessionUser();
-  if (!user || user.employee.role !== 'hr_admin') return null;
+  if (!user || (user.employee.role !== 'hr_admin' && user.employee.role !== 'super_admin')) {
+    return null;
+  }
+  return user;
+}
+
+/** Same as getSessionUser, but asserts the unscoped super_admin tier. */
+export async function getSuperAdminUser(): Promise<SessionUser | null> {
+  const user = await getSessionUser();
+  if (!user || user.employee.role !== 'super_admin') return null;
   return user;
 }
