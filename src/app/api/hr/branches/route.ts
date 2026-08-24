@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { recordAudit } from '@/lib/audit';
-import { createAdminClient, getHrUser } from '@/lib/supabase/server';
+import { createAdminClient, getSuperAdminUser } from '@/lib/supabase/server';
 
-/** POST /api/hr/branches — create a branch. HR only. */
+/** POST /api/hr/branches — create a branch. Super-admin only (see RLS). */
 export async function POST(request: Request) {
-  const hr = await getHrUser();
+  const hr = await getSuperAdminUser();
   if (!hr) {
     return NextResponse.json(
-      { error: 'HR administrator access required.' },
+      { error: 'Super administrator access required.' },
       { status: 403 },
     );
   }
@@ -51,7 +51,15 @@ export async function POST(request: Request) {
 }
 
 export function parseBranchInput(body: Record<string, unknown>):
-  | { value: { name: string; latitude: number; longitude: number; radius_meters: number } }
+  | {
+      value: {
+        name: string;
+        latitude: number;
+        longitude: number;
+        radius_meters: number;
+        weekly_off_days?: number[];
+      };
+    }
   | { error: string } {
   const name = typeof body.name === 'string' ? body.name.trim() : '';
   const latitude = Number(body.latitude);
@@ -69,12 +77,24 @@ export function parseBranchInput(body: Record<string, unknown>):
     return { error: 'Geofence radius must be between 1 and 5000 metres.' };
   }
 
+  let weeklyOffDays: number[] | undefined;
+  if (body.weeklyOffDays !== undefined) {
+    if (
+      !Array.isArray(body.weeklyOffDays) ||
+      !body.weeklyOffDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+    ) {
+      return { error: 'weeklyOffDays must be an array of integers between 0 and 6.' };
+    }
+    weeklyOffDays = body.weeklyOffDays;
+  }
+
   return {
     value: {
       name,
       latitude,
       longitude,
       radius_meters: Math.round(radius),
+      ...(weeklyOffDays !== undefined ? { weekly_off_days: weeklyOffDays } : {}),
     },
   };
 }

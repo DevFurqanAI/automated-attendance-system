@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
 import { recordAudit } from '@/lib/audit';
+import { isBranchManagedBy } from '@/lib/hr-scope';
 import { createAdminClient, getHrUser } from '@/lib/supabase/server';
 import { parseBranchInput } from '../route';
 
@@ -33,6 +34,13 @@ export async function PATCH(
   }
 
   const admin = createAdminClient();
+
+  if (!(await isBranchManagedBy(admin, hr, id))) {
+    return NextResponse.json(
+      { error: 'This branch is not assigned to you.' },
+      { status: 403 },
+    );
+  }
 
   if (body.rotate === true) {
     const { data: current } = await admin
