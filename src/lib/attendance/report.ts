@@ -91,6 +91,119 @@ export async function loadReport(
   return { entries, totals };
 }
 
+export interface AttendanceSummaryRow {
+  employeeId: string;
+  employeeName: string;
+  present: number;
+  absent: number;
+  leave: number;
+  holidayOrOff: number;
+}
+
+/**
+ * Per-employee day counts over the range: how many days were spent present,
+ * absent, on leave, or off (weekend/holiday) — the picture "hours worked"
+ * alone can't give. Iterates one is_working_day() call per employee-day
+ * rather than a single SQL aggregate, matching the resolver's own
+ * per-employee/per-date shape (branch_id / weekly_off_days come from the
+ * employee row it looks up internally).
+ */
+export async function loadAttendanceSummary(
+  supabase: SupabaseClient,
+  filters: ReportFilters,
+): Promise<AttendanceSummaryRow[]> {
+  let employeeQuery = supabase.from('employees').select('id, full_name').eq('active', true);
+
+  if (filters.employeeId) employeeQuery = employeeQuery.eq('id', filters.employeeId);
+  if (filters.branchId) employeeQuery = employeeQuery.eq('default_branch_id', filters.branchId);
+  const { data: employees, error: employeesError } = await employeeQuery.returns<
+    { id: string; full_name: string }[]
+  >();
+  if (employeesError) throw new Error(employeesError.message);
+
+  const fromDate = filters.from.slice(0, 10);
+  const toDate = filters.to.slice(0, 10);
+  const dates: string[] = [];
+  for (
+    let d = new Date(`${fromDate}T00:00:00Z`);
+    d <= new Date(`${toDate}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1)
+  ) {
+    dates.push(d.toISOString().slice(0, 10));
+  }
+
+  const results: AttendanceSummaryRow[] = [];
+
+  for (const employee of employees ?? []) {
+    const [{ data: attendanceDates }, { data: leaveRows }, { data: absenceRows }] = await Promise.all([
+      supabase
+        .from('attendance')
+        .select('check_in_time')
+        .eq('employee_id', employee.id)
+        .gte('check_in_time', `${fromDate}T00:00:00Z`)
+        .lte('check_in_time', `${toDate}T23:59:59Z`)
+        .not('check_in_time', 'is', null)
+        .returns<{ check_in_time: string }[]>(),
+      supabase
+        .from('leave_requests')
+        .select('from_date, to_date')
+        .eq('employee_id', employee.id)
+        .eq('status', 'approved')
+        .lte('from_date', toDate)
+        .gte('to_date', fromDate)
+        .returns<{ from_date: string; to_date: string }[]>(),
+      supabase
+        .from('absences')
+        .select('date')
+        .eq('employee_id', employee.id)
+        .gte('date', fromDate)
+        .lte('date', toDate)
+        .returns<{ date: string }[]>(),
+    ]);
+
+    const presentDates = new Set(
+      (attendanceDates ?? []).map((a) => a.check_in_time.slice(0, 10)),
+    );
+    const leaveDates = new Set(
+      dates.filter((date) =>
+        (leaveRows ?? []).some((l) => date >= l.from_date && date <= l.to_date),
+      ),
+    );
+    const absentDates = new Set((absenceRows ?? []).map((a) => a.date));
+
+    let present = 0;
+    let absent = 0;
+    let leave = 0;
+    let holidayOrOff = 0;
+
+    for (const date of dates) {
+      if (presentDates.has(date)) {
+        present += 1;
+      } else if (leaveDates.has(date)) {
+        leave += 1;
+      } else if (absentDates.has(date)) {
+        absent += 1;
+      } else {
+        // Neither present, on leave, nor marked absent — a weekend/holiday,
+        // or (for today/future dates within the range) simply not yet
+        // reconciled by the nightly job.
+        holidayOrOff += 1;
+      }
+    }
+
+    results.push({
+      employeeId: employee.id,
+      employeeName: employee.full_name,
+      present,
+      absent,
+      leave,
+      holidayOrOff,
+    });
+  }
+
+  return results;
+}
+
 /**
  * RFC 4180 CSV.
  *

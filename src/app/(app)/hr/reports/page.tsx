@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
-import { loadReport } from '@/lib/attendance/report';
+import { loadAttendanceSummary, loadReport } from '@/lib/attendance/report';
 import { formatDateTime, formatDuration } from '@/lib/format';
 import { createClient, getHrUser } from '@/lib/supabase/server';
 import type { Branch, Employee } from '@/lib/types';
@@ -44,7 +44,7 @@ export default async function ReportsPage({
 
   const supabase = await createClient();
 
-  const [{ data: employees }, { data: branches }, report] = await Promise.all([
+  const [{ data: employees }, { data: branches }, report, summary] = await Promise.all([
     supabase
       .from('employees')
       .select('*')
@@ -56,6 +56,7 @@ export default async function ReportsPage({
       .order('name')
       .returns<Branch[]>(),
     loadReport(supabase, { from, to, employeeId, branchId }),
+    loadAttendanceSummary(supabase, { from, to, employeeId, branchId }),
   ]);
 
   const query = new URLSearchParams({ from, to });
@@ -91,6 +92,33 @@ export default async function ReportsPage({
           hint="Checked in, not yet out"
         />
       </div>
+
+      {summary.length > 0 && (
+        <div className="card mt-5 overflow-x-auto">
+          <table className="w-full min-w-[40rem] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-line text-left">
+                <Th>Employee</Th>
+                <Th>Present</Th>
+                <Th>Absent</Th>
+                <Th>Leave</Th>
+                <Th>Off / holiday</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.map((row) => (
+                <tr key={row.employeeId} className="border-b border-line last:border-0">
+                  <td className="px-4 py-3 font-semibold text-ink">{row.employeeName}</td>
+                  <td className="px-4 py-3 tabular-nums">{row.present}</td>
+                  <td className="px-4 py-3 tabular-nums">{row.absent}</td>
+                  <td className="px-4 py-3 tabular-nums">{row.leave}</td>
+                  <td className="px-4 py-3 tabular-nums">{row.holidayOrOff}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {report.entries.length === 0 ? (
         <p className="card mt-5 p-10 text-center text-ink-muted">
