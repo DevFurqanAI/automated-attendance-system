@@ -1,6 +1,6 @@
 /** Shared domain types, mirroring the Postgres schema in supabase/migrations. */
 
-export type Role = 'employee' | 'hr_admin';
+export type Role = 'employee' | 'hr_admin' | 'super_admin';
 export type Method = 'qr_gps' | 'remote_request';
 export type Status = 'approved' | 'pending' | 'flagged' | 'declined';
 export type FlagReason =
