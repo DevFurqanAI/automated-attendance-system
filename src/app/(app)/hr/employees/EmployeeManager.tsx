@@ -35,6 +35,23 @@ export function EmployeeManager({
     return map;
   });
 
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | Role>('all');
+
+  const visibleEmployees = employees.filter((emp) => {
+    if (statusFilter === 'active' && !emp.active) return false;
+    if (statusFilter === 'inactive' && emp.active) return false;
+    if (roleFilter !== 'all' && emp.role !== roleFilter) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      if (!emp.full_name.toLowerCase().includes(q) && !emp.email.toLowerCase().includes(q)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
   async function sendInvite(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -358,7 +375,56 @@ export function EmployeeManager({
         </form>
       )}
 
-      <div className="card mt-5 overflow-x-auto">
+      <div className="mt-5 flex flex-wrap items-end gap-3">
+        <div className="min-w-[14rem] flex-1">
+          <label htmlFor="employeeSearch" className="field-label">
+            Search
+          </label>
+          <input
+            id="employeeSearch"
+            className="field"
+            placeholder="Name or email"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor="statusFilter" className="field-label">
+            Status
+          </label>
+          <select
+            id="statusFilter"
+            className="field text-sm"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+          >
+            <option value="all">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor="roleFilter" className="field-label">
+            Role
+          </label>
+          <select
+            id="roleFilter"
+            className="field text-sm"
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value as typeof roleFilter)}
+          >
+            <option value="all">All</option>
+            <option value="employee">Employee</option>
+            <option value="hr_admin">HR admin</option>
+            <option value="super_admin">Super admin</option>
+          </select>
+        </div>
+        <p className="pb-2 text-xs text-ink-faint">
+          {visibleEmployees.length} of {employees.length}
+        </p>
+      </div>
+
+      <div className="card mt-3 overflow-x-auto">
         <table className="w-full min-w-[48rem] border-collapse text-sm">
           <thead>
             <tr className="border-b border-line text-left">
@@ -370,7 +436,14 @@ export function EmployeeManager({
             </tr>
           </thead>
           <tbody>
-            {employees.map((emp) => {
+            {visibleEmployees.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-ink-muted">
+                  No employees match this filter.
+                </td>
+              </tr>
+            )}
+            {visibleEmployees.map((emp) => {
               const isSelf = emp.id === currentUserId;
               // Role and default-branch changes are super_admin-only; a scoped
               // hr_admin sees the current value as read-only text. Activating/
