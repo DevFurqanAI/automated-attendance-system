@@ -879,12 +879,7 @@ function BulkToolbar({
       <button type="button" className="btn-danger" disabled={busy} onClick={onDecline}>
         Decline selected
       </button>
-      <button
-        type="button"
-        className="text-xs font-semibold text-ink-faint underline"
-        disabled={busy}
-        onClick={onClear}
-      >
+      <button type="button" className="btn-ghost" disabled={busy} onClick={onClear}>
         Clear selection
       </button>
     </div>

@@ -19,16 +19,12 @@ export function DisputeButton({
   const [submitted, setSubmitted] = useState(hasOpenDispute);
 
   if (submitted) {
-    return <span className="text-xs font-semibold text-status-flagged">Disputed</span>;
+    return <span className="badge bg-status-flagged-bg text-status-flagged">Disputed</span>;
   }
 
   if (!open) {
     return (
-      <button
-        type="button"
-        className="text-xs font-semibold text-ink-faint underline"
-        onClick={() => setOpen(true)}
-      >
+      <button type="button" className="btn-ghost btn-sm" onClick={() => setOpen(true)}>
         Dispute
       </button>
     );
@@ -69,13 +65,13 @@ export function DisputeButton({
         required
       />
       {error && <p className="mt-1 text-xs text-status-flagged">{error}</p>}
-      <div className="mt-1 flex gap-2">
-        <button type="submit" className="text-xs font-semibold text-brand-primary underline" disabled={busy}>
+      <div className="mt-1.5 flex gap-1.5">
+        <button type="submit" className="btn-secondary btn-sm" disabled={busy}>
           {busy ? 'Submitting…' : 'Submit'}
         </button>
         <button
           type="button"
-          className="text-xs text-ink-faint underline"
+          className="btn-ghost btn-sm"
           disabled={busy}
           onClick={() => setOpen(false)}
         >

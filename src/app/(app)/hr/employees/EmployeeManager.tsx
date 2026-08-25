@@ -661,11 +661,7 @@ export function EmployeeManager({
           >
             {showBulkPresent ? 'Cancel' : 'Mark selected present'}
           </button>
-          <button
-            type="button"
-            className="text-xs font-semibold text-ink-faint underline"
-            onClick={() => setSelected(new Set())}
-          >
+          <button type="button" className="btn-ghost" onClick={() => setSelected(new Set())}>
             Clear selection
           </button>
         </div>
@@ -827,7 +823,7 @@ export function EmployeeManager({
                       </span>
                     )}
                     {editingEmailId === emp.id ? (
-                      <div className="mt-1 flex items-center gap-1">
+                      <div className="mt-1 flex items-center gap-1.5">
                         <input
                           type="email"
                           aria-label={`Email for ${emp.full_name}`}
@@ -838,7 +834,7 @@ export function EmployeeManager({
                         />
                         <button
                           type="button"
-                          className="text-xs font-semibold text-brand-primary underline"
+                          className="btn-secondary btn-sm"
                           disabled={busyId === emp.id || !emailDraft.trim()}
                           onClick={() => saveEmail(emp.id)}
                         >
@@ -846,7 +842,7 @@ export function EmployeeManager({
                         </button>
                         <button
                           type="button"
-                          className="text-xs text-ink-faint underline"
+                          className="btn-ghost btn-sm"
                           disabled={busyId === emp.id}
                           onClick={() => setEditingEmailId(null)}
                         >
@@ -854,18 +850,18 @@ export function EmployeeManager({
                         </button>
                       </div>
                     ) : (
-                      <span className="block text-xs text-ink-faint">
-                        {emp.email}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-ink-faint">{emp.email}</span>
                         {canEditEmail && (
                           <button
                             type="button"
-                            className="ml-2 underline"
+                            className="btn-ghost btn-sm"
                             onClick={() => startEditEmail(emp)}
                           >
                             Change
                           </button>
                         )}
-                      </span>
+                      </div>
                     )}
                   </td>
                   <td className="px-4 py-3">
@@ -944,7 +940,7 @@ export function EmployeeManager({
                     ) : (
                       <button
                         type="button"
-                        className="mt-1 text-xs text-ink-faint underline"
+                        className="btn-ghost btn-sm mt-1 -ml-2.5"
                         disabled={busyId === emp.id}
                         onClick={() => update(emp.id, { weeklyOffDays: null })}
                       >
@@ -993,10 +989,10 @@ export function EmployeeManager({
                     <span className="mt-1 block text-xs text-ink-faint">days / year</span>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex flex-col items-start gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <button
                         type="button"
-                        className={emp.active ? 'btn-danger' : 'btn-secondary'}
+                        className={`btn-sm ${emp.active ? 'btn-danger' : 'btn-secondary'}`}
                         disabled={busyId === emp.id || !canToggleActive}
                         onClick={() => update(emp.id, { active: !emp.active })}
                       >
@@ -1004,7 +1000,7 @@ export function EmployeeManager({
                       </button>
                       <button
                         type="button"
-                        className="text-xs font-semibold text-brand-primary underline"
+                        className={markPresentId === emp.id ? 'btn-ghost btn-sm' : 'btn-secondary btn-sm'}
                         onClick={() =>
                           markPresentId === emp.id ? setMarkPresentId(null) : openMarkPresent(emp.id)
                         }
@@ -1013,7 +1009,7 @@ export function EmployeeManager({
                       </button>
                       <button
                         type="button"
-                        className="text-xs font-semibold text-brand-primary underline"
+                        className={markAbsentId === emp.id ? 'btn-ghost btn-sm' : 'btn-secondary btn-sm'}
                         onClick={() =>
                           markAbsentId === emp.id ? setMarkAbsentId(null) : openMarkAbsent(emp.id)
                         }
@@ -1022,7 +1018,7 @@ export function EmployeeManager({
                       </button>
                       <button
                         type="button"
-                        className="text-xs font-semibold text-brand-primary underline"
+                        className={markLeaveId === emp.id ? 'btn-ghost btn-sm' : 'btn-secondary btn-sm'}
                         onClick={() =>
                           markLeaveId === emp.id ? setMarkLeaveId(null) : openMarkLeave(emp.id)
                         }
@@ -1031,7 +1027,7 @@ export function EmployeeManager({
                       </button>
                       <a
                         href={`/api/hr/employees/${emp.id}/export`}
-                        className="text-xs font-semibold text-brand-primary underline"
+                        className="btn-secondary btn-sm"
                         download
                       >
                         Export data
@@ -1039,7 +1035,7 @@ export function EmployeeManager({
                       {isSuperAdmin && !isSelf && (
                         <button
                           type="button"
-                          className="text-xs font-semibold text-status-flagged underline"
+                          className={deletingId === emp.id ? 'btn-ghost btn-sm' : 'btn-danger btn-sm'}
                           onClick={() =>
                             deletingId === emp.id ? setDeletingId(null) : openDelete(emp.id)
                           }
@@ -1178,7 +1174,7 @@ export function EmployeeManager({
                         block sign-in, use Deactivate instead.{' '}
                         <a
                           href={`/api/hr/employees/${emp.id}/export`}
-                          className="font-semibold underline"
+                          className="font-semibold text-brand-primary hover:underline"
                           download
                         >
                           Export their data first

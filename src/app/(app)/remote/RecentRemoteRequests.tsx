@@ -69,7 +69,7 @@ export function RecentRemoteRequests({ initialRows }: { initialRows: Attendance[
                 {row.status === 'pending' && (
                   <button
                     type="button"
-                    className="text-xs font-semibold text-ink-faint underline"
+                    className="btn-danger btn-sm"
                     disabled={busyId === row.id}
                     onClick={() => withdraw(row.id)}
                   >

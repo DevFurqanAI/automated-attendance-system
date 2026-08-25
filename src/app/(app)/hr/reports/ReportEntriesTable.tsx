@@ -104,7 +104,7 @@ export function ReportEntriesTable({
                 <td className="px-4 py-3">
                   <button
                     type="button"
-                    className="text-xs font-semibold text-brand-primary underline"
+                    className={editingId === e.id ? 'btn-ghost btn-sm' : 'btn-secondary btn-sm'}
                     onClick={() => (editingId === e.id ? setEditingId(null) : openEdit(e))}
                   >
                     {editingId === e.id ? 'Cancel' : 'Edit'}

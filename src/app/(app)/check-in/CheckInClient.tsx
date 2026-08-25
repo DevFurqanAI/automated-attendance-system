@@ -317,11 +317,7 @@ function RemoteCheckoutSection({
 
   if (!open) {
     return (
-      <button
-        type="button"
-        className="mt-3 text-sm font-semibold text-brand-primary underline"
-        onClick={() => setOpen(true)}
-      >
+      <button type="button" className="btn-secondary mt-3 w-full" onClick={() => setOpen(true)}>
         Can&apos;t get back to scan out? Request a remote checkout
       </button>
     );

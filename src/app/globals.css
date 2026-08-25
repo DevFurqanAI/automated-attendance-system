@@ -105,6 +105,31 @@ body {
   }
 }
 
+/*
+ * Ghost: the lowest-emphasis real button — no border, transparent until
+ * hovered. For a dense row of secondary actions (a table cell, a card
+ * footer) where a full bordered btn-secondary per action would be too loud,
+ * but a bare underlined <button> reads as unstyled, not "quiet by design."
+ * Still a proper button: a hit target, a hover state, disabled handling —
+ * never a link standing in for an action.
+ */
+@utility btn-ghost {
+  @apply btn border-transparent bg-transparent text-ink-muted;
+  &:hover:not(:disabled) {
+    background-color: var(--color-surface-muted);
+    color: var(--color-ink);
+  }
+}
+
+/*
+ * Size modifier, composed onto btn-primary/btn-secondary/btn-danger/btn-ghost
+ * (e.g. `className="btn-secondary btn-sm"`) — for the same dense contexts.
+ * Defined after the color variants so its sizing wins the cascade.
+ */
+@utility btn-sm {
+  @apply gap-1.5 px-2.5 py-1 text-xs;
+}
+
 @utility field-label {
   @apply mb-1.5 block text-sm font-semibold text-ink;
 }
