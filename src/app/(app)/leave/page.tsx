@@ -1,9 +1,8 @@
 import type { Metadata } from 'next';
-import { StatusBadge } from '@/components/StatusBadge';
-import { formatDate } from '@/lib/format';
 import { createClient, getSessionUser } from '@/lib/supabase/server';
 import type { LeaveRequest } from '@/lib/types';
 import { LeaveForm } from './LeaveForm';
+import { RecentLeaveRequests } from './RecentLeaveRequests';
 
 export const metadata: Metadata = { title: 'Leave' };
 
@@ -33,29 +32,7 @@ export default async function LeavePage() {
         <LeaveForm />
       </div>
 
-      {recent && recent.length > 0 && (
-        <section className="mt-8">
-          <h2 className="text-sm font-bold uppercase tracking-wide text-ink-muted">
-            Your recent requests
-          </h2>
-          <ul className="mt-3 space-y-2">
-            {recent.map((row) => (
-              <li key={row.id} className="card p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-ink">{row.reason}</p>
-                    <p className="mt-1 text-sm text-ink-muted">
-                      {formatDate(row.from_date)}
-                      {row.to_date !== row.from_date ? ` → ${formatDate(row.to_date)}` : ''}
-                    </p>
-                  </div>
-                  <StatusBadge status={row.status} />
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <RecentLeaveRequests initialRows={recent ?? []} />
     </div>
   );
 }

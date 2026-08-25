@@ -9,6 +9,8 @@ const STYLES: Record<Status, string> = {
   pending: 'bg-status-pending-bg text-status-pending',
   flagged: 'bg-status-flagged-bg text-status-flagged',
   declined: 'bg-status-declined-bg text-status-declined',
+  // Neutral, same as declined — withdrawn is a self-resolved outcome, not an error.
+  withdrawn: 'bg-status-declined-bg text-status-declined',
 };
 
 const LABELS: Record<Status, string> = {
@@ -16,6 +18,7 @@ const LABELS: Record<Status, string> = {
   pending: 'Pending',
   flagged: 'Flagged',
   declined: 'Declined',
+  withdrawn: 'Withdrawn',
 };
 
 export function StatusBadge({ status }: { status: Status }) {

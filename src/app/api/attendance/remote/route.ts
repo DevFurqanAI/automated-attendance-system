@@ -4,6 +4,7 @@ import { isValidCoords } from '@/lib/geo';
 import { hrAdminIds, notify } from '@/lib/notify';
 import { RATE_LIMITS, checkRateLimit, tooManyRequests } from '@/lib/rate-limit';
 import { createAdminClient, getSessionUser } from '@/lib/supabase/server';
+import type { Attendance } from '@/lib/types';
 
 /**
  * POST /api/attendance/remote — spec §7.4
@@ -138,6 +139,61 @@ export async function POST(request: Request) {
     status: 'pending',
     submittedAt: inserted.submitted_at,
   });
+}
+
+/**
+ * DELETE /api/attendance/remote?id=… — withdraw the caller's own pending
+ * remote check-in request.
+ *
+ * Distinct from an HR decline for the same reason as the leave-request
+ * counterpart (see DELETE /api/attendance/leave): the request never reached
+ * review, so "withdrawn" is the honest status, not "declined". Scoped to
+ * method='remote_request' — a claimed checkout on an already-open qr_gps
+ * shift (POST /api/attendance/remote-checkout) is a different thing with its
+ * own resolution path via HR's force-checkout.
+ */
+export async function DELETE(request: Request) {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Not signed in.' }, { status: 401 });
+  }
+
+  const id = new URL(request.url).searchParams.get('id');
+  if (!id) {
+    return NextResponse.json({ error: 'Missing request id.' }, { status: 400 });
+  }
+
+  const admin = createAdminClient();
+
+  const { data: record } = await admin
+    .from('attendance')
+    .select('*')
+    .eq('id', id)
+    .single<Attendance>();
+
+  if (!record || record.employee_id !== user.id || record.method !== 'remote_request') {
+    return NextResponse.json({ error: 'Request not found.' }, { status: 404 });
+  }
+  if (record.status !== 'pending') {
+    return NextResponse.json(
+      { error: `This request has already been ${record.status} and can no longer be withdrawn.` },
+      { status: 409 },
+    );
+  }
+
+  const { error } = await admin
+    .from('attendance')
+    .update({ status: 'withdrawn' })
+    .eq('id', id);
+
+  if (error) {
+    return NextResponse.json(
+      { error: 'Could not withdraw the request. Please try again.' },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({ id, status: 'withdrawn' });
 }
 
 function parseDate(value: unknown): Date | null {

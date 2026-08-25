@@ -2,7 +2,7 @@
 
 export type Role = 'employee' | 'hr_admin' | 'super_admin';
 export type Method = 'qr_gps' | 'remote_request';
-export type Status = 'approved' | 'pending' | 'flagged' | 'declined';
+export type Status = 'approved' | 'pending' | 'flagged' | 'declined' | 'withdrawn';
 export type FlagReason =
   | 'mock_location_detected'
   | 'impossible_travel'
@@ -114,7 +114,7 @@ export const CALENDAR_DAY_KIND_LABELS: Record<CalendarDayKind, string> = {
 
 export const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
-export type LeaveStatus = 'pending' | 'approved' | 'declined';
+export type LeaveStatus = 'pending' | 'approved' | 'declined' | 'withdrawn';
 
 export interface LeaveRequest {
   id: string;

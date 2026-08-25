@@ -3,6 +3,7 @@ import { validateLeaveRange } from '@/lib/attendance/leave';
 import { notify, scopedHrRecipientIds } from '@/lib/notify';
 import { RATE_LIMITS, checkRateLimit, tooManyRequests } from '@/lib/rate-limit';
 import { createAdminClient, getSessionUser } from '@/lib/supabase/server';
+import type { LeaveRequest } from '@/lib/types';
 
 /**
  * POST /api/attendance/leave — submit a leave request.
@@ -86,4 +87,57 @@ export async function POST(request: Request) {
     fromDate: inserted.from_date,
     toDate: inserted.to_date,
   });
+}
+
+/**
+ * DELETE /api/attendance/leave?id=… — withdraw the caller's own pending
+ * request.
+ *
+ * Distinct from an HR decline: the request never reached review, so this is
+ * not "rejected" — it just stops existing as something to act on. Employee-
+ * owned and pending-only; HR review flips a request out of 'pending'
+ * permanently, so there is nothing left to withdraw once that happens.
+ */
+export async function DELETE(request: Request) {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Not signed in.' }, { status: 401 });
+  }
+
+  const id = new URL(request.url).searchParams.get('id');
+  if (!id) {
+    return NextResponse.json({ error: 'Missing request id.' }, { status: 400 });
+  }
+
+  const admin = createAdminClient();
+
+  const { data: record } = await admin
+    .from('leave_requests')
+    .select('*')
+    .eq('id', id)
+    .single<LeaveRequest>();
+
+  if (!record || record.employee_id !== user.id) {
+    return NextResponse.json({ error: 'Request not found.' }, { status: 404 });
+  }
+  if (record.status !== 'pending') {
+    return NextResponse.json(
+      { error: `This request has already been ${record.status} and can no longer be withdrawn.` },
+      { status: 409 },
+    );
+  }
+
+  const { error } = await admin
+    .from('leave_requests')
+    .update({ status: 'withdrawn' })
+    .eq('id', id);
+
+  if (error) {
+    return NextResponse.json(
+      { error: 'Could not withdraw the request. Please try again.' },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({ id, status: 'withdrawn' });
 }
