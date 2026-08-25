@@ -3,7 +3,7 @@ import { recordAudit } from '@/lib/audit';
 import { isEmployeeVisibleTo } from '@/lib/hr-scope';
 import { notify } from '@/lib/notify';
 import { RATE_LIMITS, checkRateLimit, tooManyRequests } from '@/lib/rate-limit';
-import { createAdminClient, getHrUser } from '@/lib/supabase/server';
+import { createAdminClient, getHrUser, getSuperAdminUser } from '@/lib/supabase/server';
 import type { Employee } from '@/lib/types';
 
 /**
@@ -356,4 +356,93 @@ export async function PATCH(request: Request) {
   }
 
   return NextResponse.json({ id, ...update });
+}
+
+/**
+ * DELETE /api/hr/employees?id=…&confirmEmail=… — permanently delete an
+ * employee.
+ *
+ * super_admin-only, and stricter than every other admin-protection guard in
+ * this file: those stop one admin from stripping another's *access*; this
+ * stops data destruction, so it applies regardless of the target's role.
+ *
+ * IRREVERSIBLE. `employees.id references auth.users(id) on delete cascade`,
+ * and attendance/leave_requests/absences/notifications/hr_branch_assignments
+ * all cascade from employees — deleting the auth user wipes every record tied
+ * to this person. Only audit_log survives: actor_id/subject_id are `on
+ * delete set null`, kept readable by the actor_name/actor_email columns
+ * denormalized for exactly this case (see 20260824092000_audit_log.sql).
+ *
+ * `confirmEmail` must match the target's current email exactly — the
+ * client-side guard against "meant to click Deactivate."
+ */
+export async function DELETE(request: Request) {
+  const superAdmin = await getSuperAdminUser();
+  if (!superAdmin) {
+    return NextResponse.json(
+      { error: 'Super administrator access required.' },
+      { status: 403 },
+    );
+  }
+
+  const params = new URL(request.url).searchParams;
+  const id = params.get('id');
+  const confirmEmail = params.get('confirmEmail')?.trim().toLowerCase() ?? '';
+
+  if (!id) {
+    return NextResponse.json({ error: 'Missing employee id.' }, { status: 400 });
+  }
+  if (id === superAdmin.id) {
+    return NextResponse.json(
+      { error: 'You cannot delete your own account.' },
+      { status: 400 },
+    );
+  }
+
+  const admin = createAdminClient();
+
+  const { data: target } = await admin
+    .from('employees')
+    .select('*')
+    .eq('id', id)
+    .single<Employee>();
+
+  if (!target) {
+    return NextResponse.json({ error: 'Employee not found.' }, { status: 404 });
+  }
+  if (!confirmEmail || confirmEmail !== target.email.toLowerCase()) {
+    return NextResponse.json(
+      { error: 'Confirmation email does not match.' },
+      { status: 400 },
+    );
+  }
+
+  // Snapshot before the row stops existing — nothing to denormalize from
+  // afterward.
+  const snapshot = {
+    full_name: target.full_name,
+    email: target.email,
+    role: target.role,
+    default_branch_id: target.default_branch_id,
+  };
+
+  const { error: deleteError } = await admin.auth.admin.deleteUser(id);
+  if (deleteError) {
+    return NextResponse.json(
+      { error: deleteError.message || 'Could not delete the employee.' },
+      { status: 500 },
+    );
+  }
+
+  // subjectId is deliberately omitted: the FK it would reference no longer
+  // exists (an INSERT can't set-null what it's inserting, only a later
+  // DELETE can) — the snapshot in `detail` is the record from here on.
+  await recordAudit(admin, superAdmin, {
+    action: 'employee.delete',
+    entityType: 'employee',
+    entityId: id,
+    detail: snapshot,
+  });
+
+  return NextResponse.json({ id, deleted: true });
 }

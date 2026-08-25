@@ -164,6 +164,38 @@ export function EmployeeManager({
     router.refresh();
   }
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  function openDelete(id: string) {
+    setDeletingId(id);
+    setDeleteConfirmText('');
+    setDeleteError(null);
+  }
+
+  async function confirmDelete(emp: Employee) {
+    setDeleteBusy(true);
+    setDeleteError(null);
+
+    const response = await fetch(
+      `/api/hr/employees?id=${emp.id}&confirmEmail=${encodeURIComponent(deleteConfirmText.trim())}`,
+      { method: 'DELETE' },
+    );
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setDeleteError(data.error ?? 'Could not delete the employee.');
+      setDeleteBusy(false);
+      return;
+    }
+
+    setDeletingId(null);
+    setDeleteBusy(false);
+    router.refresh();
+  }
+
   function toggleWeeklyOffDay(emp: Employee, day: number) {
     const current = emp.weekly_off_days ?? [];
     const next = current.includes(day)
@@ -447,9 +479,66 @@ export function EmployeeManager({
                       >
                         {markPresentId === emp.id ? 'Cancel' : 'Mark present'}
                       </button>
+                      {isSuperAdmin && !isSelf && (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-status-flagged underline"
+                          onClick={() =>
+                            deletingId === emp.id ? setDeletingId(null) : openDelete(emp.id)
+                          }
+                        >
+                          {deletingId === emp.id ? 'Cancel' : 'Delete'}
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
+                {deletingId === emp.id && (
+                  <tr className="border-b border-line last:border-0">
+                    <td colSpan={5} className="bg-status-flagged-bg px-4 py-4">
+                      <p className="text-sm font-bold text-status-flagged">
+                        Permanently delete {emp.full_name}?
+                      </p>
+                      <p className="mt-1 text-xs text-ink-muted">
+                        This cannot be undone. Every attendance record, leave
+                        request, absence, and notification tied to this
+                        person is deleted along with their account — only a
+                        trace in the audit log survives. If you just need to
+                        block sign-in, use Deactivate instead.
+                      </p>
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+                        <div>
+                          <label className="field-label text-xs" htmlFor={`del-confirm-${emp.id}`}>
+                            Type <span className="font-mono">{emp.email}</span> to confirm
+                          </label>
+                          <input
+                            id={`del-confirm-${emp.id}`}
+                            className="field text-sm"
+                            value={deleteConfirmText}
+                            disabled={deleteBusy}
+                            onChange={(e) => setDeleteConfirmText(e.target.value)}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-danger"
+                          disabled={
+                            deleteBusy ||
+                            deleteConfirmText.trim().toLowerCase() !== emp.email.toLowerCase()
+                          }
+                          onClick={() => confirmDelete(emp)}
+                        >
+                          {deleteBusy ? 'Deleting…' : 'Permanently delete'}
+                        </button>
+                      </div>
+                      {deleteError && (
+                        <p role="alert" className="mt-3 text-sm font-medium text-status-flagged">
+                          {deleteError}
+                        </p>
+                      )}
+                    </td>
+                  </tr>
+                )}
                 {markPresentId === emp.id && (
                   <tr className="border-b border-line last:border-0">
                     <td colSpan={5} className="bg-surface-muted px-4 py-4">

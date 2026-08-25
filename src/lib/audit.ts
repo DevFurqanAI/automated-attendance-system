@@ -24,6 +24,7 @@ export type AuditAction =
   | 'employee.branch_change'
   | 'employee.weekly_off_days_change'
   | 'employee.email_change'
+  | 'employee.delete'
   | 'branch.create'
   | 'branch.update'
   | 'branch.qr_rotate'
@@ -85,6 +86,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   'employee.branch_change': 'Changed default branch',
   'employee.weekly_off_days_change': 'Changed weekly off days',
   'employee.email_change': 'Changed work email',
+  'employee.delete': 'Deleted employee',
   'branch.create': 'Created branch',
   'branch.update': 'Updated branch',
   'branch.qr_rotate': 'Rotated QR code',
