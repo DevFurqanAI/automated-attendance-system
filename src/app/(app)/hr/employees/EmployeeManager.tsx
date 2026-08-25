@@ -3,8 +3,45 @@
 import { useRouter } from 'next/navigation';
 import { Fragment, useState } from 'react';
 import { todayInTz } from '@/lib/attendance/leave';
+import { parseCsv } from '@/lib/csv';
 import { toLocalInputValue } from '@/lib/format';
 import { WEEKDAY_LABELS, type Branch, type Employee, type Role } from '@/lib/types';
+
+interface ImportRow {
+  fullName: string;
+  email: string;
+  /** Set when the row fails basic validation — shown, but excluded from the send. */
+  problem?: string;
+}
+
+/** True if the first row looks like a header rather than data (e.g. "Full name,Email"). */
+function looksLikeHeader(row: string[]): boolean {
+  return row.length >= 2 && !row[1].includes('@');
+}
+
+function parseImportRows(text: string): ImportRow[] {
+  const raw = parseCsv(text);
+  if (raw.length === 0) return [];
+  const dataRows = looksLikeHeader(raw[0]) ? raw.slice(1) : raw;
+
+  const seen = new Set<string>();
+  return dataRows.map((cells): ImportRow => {
+    const fullName = (cells[0] ?? '').trim();
+    const email = (cells[1] ?? '').trim().toLowerCase();
+
+    if (!email || !email.includes('@')) {
+      return { fullName, email, problem: 'Missing or invalid email' };
+    }
+    if (!fullName) {
+      return { fullName, email, problem: 'Missing name' };
+    }
+    if (seen.has(email)) {
+      return { fullName, email, problem: 'Duplicate in this file' };
+    }
+    seen.add(email);
+    return { fullName, email };
+  });
+}
 
 export function EmployeeManager({
   employees,
@@ -34,6 +71,55 @@ export function EmployeeManager({
     }
     return map;
   });
+
+  const [showImport, setShowImport] = useState(false);
+  const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+
+  async function handleImportFile(file: File) {
+    const text = await file.text();
+    setImportRows(parseImportRows(text));
+    setImportError(null);
+    setImportNotice(null);
+  }
+
+  async function submitImport() {
+    const valid = importRows.filter((r) => !r.problem);
+    if (valid.length === 0) return;
+
+    setImportBusy(true);
+    setImportError(null);
+    setImportNotice(null);
+
+    const response = await fetch('/api/hr/employees', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        invites: valid.map((r) => ({ fullName: r.fullName, email: r.email })),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setImportError(data.error ?? 'Could not send the invites.');
+      setImportBusy(false);
+      return;
+    }
+
+    const failedCount = data.failed?.length ?? 0;
+    setImportNotice(
+      failedCount > 0
+        ? `Sent ${data.succeeded.length} invite(s); ${failedCount} failed (${data.failed
+            .map((f: { email: string; error: string }) => `${f.email}: ${f.error}`)
+            .join('; ')}).`
+        : `Sent ${data.succeeded.length} invite(s).`,
+    );
+    setImportRows([]);
+    setImportBusy(false);
+    router.refresh();
+  }
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
@@ -374,13 +460,22 @@ export function EmployeeManager({
             sign-in.
           </p>
         </div>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => setShowInvite((v) => !v)}
-        >
-          {showInvite ? 'Cancel' : 'Invite employee'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setShowInvite((v) => !v)}
+          >
+            {showInvite ? 'Cancel' : 'Invite employee'}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setShowImport((v) => !v)}
+          >
+            {showImport ? 'Cancel' : 'Bulk import (CSV)'}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -436,6 +531,75 @@ export function EmployeeManager({
             {busy ? 'Sending…' : 'Send invite'}
           </button>
         </form>
+      )}
+
+      {showImport && (
+        <div className="card mt-5 p-5">
+          <label htmlFor="importFile" className="field-label">
+            CSV file
+          </label>
+          <input
+            id="importFile"
+            type="file"
+            accept=".csv,text/csv"
+            className="field"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleImportFile(file);
+            }}
+          />
+          <p className="mt-1.5 text-xs text-ink-faint">
+            Two columns: full name, email. A header row (&quot;Full name,Email&quot;)
+            is optional and detected automatically.
+          </p>
+
+          {importRows.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
+                {importRows.filter((r) => !r.problem).length} of {importRows.length} rows ready
+              </p>
+              <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-sm">
+                {importRows.map((row, i) => (
+                  <li
+                    key={i}
+                    className={`flex items-center justify-between gap-3 border-b border-line py-1 ${
+                      row.problem ? 'text-status-flagged' : 'text-ink'
+                    }`}
+                  >
+                    <span>
+                      {row.fullName || <em className="text-ink-faint">(no name)</em>} —{' '}
+                      {row.email || <em className="text-ink-faint">(no email)</em>}
+                    </span>
+                    {row.problem && <span className="text-xs">{row.problem}</span>}
+                  </li>
+                ))}
+              </ul>
+
+              {importError && (
+                <p role="alert" className="mt-3 text-sm font-medium text-status-flagged">
+                  {importError}
+                </p>
+              )}
+
+              <button
+                type="button"
+                className="btn-primary mt-4"
+                disabled={importBusy || importRows.every((r) => r.problem)}
+                onClick={submitImport}
+              >
+                {importBusy
+                  ? 'Sending…'
+                  : `Send ${importRows.filter((r) => !r.problem).length} invite(s)`}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {importNotice && (
+        <p className="mt-4 border-l-4 border-brand-primary bg-brand-primary-soft p-3 text-sm font-medium text-brand-secondary">
+          {importNotice}
+        </p>
       )}
 
       <div className="mt-5 flex flex-wrap items-end gap-3">

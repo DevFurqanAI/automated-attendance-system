@@ -1,14 +1,28 @@
 import { NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { recordAudit } from '@/lib/audit';
 import { isEmployeeVisibleTo } from '@/lib/hr-scope';
 import { notify } from '@/lib/notify';
-import { RATE_LIMITS, checkRateLimit, tooManyRequests } from '@/lib/rate-limit';
-import { createAdminClient, getHrUser, getSuperAdminUser } from '@/lib/supabase/server';
+import { RATE_LIMITS, checkRateLimit } from '@/lib/rate-limit';
+import { createAdminClient, getHrUser, getSuperAdminUser, type SessionUser } from '@/lib/supabase/server';
 import type { Employee } from '@/lib/types';
 
+/** Bulk-import cap — well above any realistic single CSV, guards against an
+ * accidentally-huge paste burning through the invite rate limit in one call. */
+const MAX_BULK_INVITES = 200;
+
 /**
- * POST   /api/hr/employees — invite a new staff member.
+ * POST   /api/hr/employees — invite a new staff member, or several at once.
  * PATCH  /api/hr/employees — change role / active / default branch.
+ * DELETE /api/hr/employees — permanently delete an employee.
+ *
+ * Bulk form (CSV import on the Employees page): pass `invites: [{ fullName,
+ * email }, ...]` instead of the top-level `fullName`/`email`. Each row is
+ * rate-limited and audited individually — the same
+ * RATE_LIMITS.invite budget as single invites, so a very large paste is
+ * throttled the same way a script hammering the single-invite form would be.
+ * Per-row failures (bad email, duplicate, rate limit) are reported
+ * individually rather than failing rows that already succeeded.
  */
 export async function POST(request: Request) {
   const hr = await getHrUser();
@@ -26,23 +40,56 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Malformed request.' }, { status: 400 });
   }
 
-  const email = typeof body.email === 'string' ? body.email.trim() : '';
-  const fullName = typeof body.fullName === 'string' ? body.fullName.trim() : '';
-
-  if (!email || !email.includes('@')) {
-    return NextResponse.json(
-      { error: 'A valid email address is required.' },
-      { status: 400 },
-    );
-  }
-  if (!fullName) {
-    return NextResponse.json({ error: 'Full name is required.' }, { status: 400 });
-  }
-
   const admin = createAdminClient();
 
+  if (Array.isArray(body.invites)) {
+    const rows = body.invites
+      .filter((v): v is Record<string, unknown> => typeof v === 'object' && v !== null)
+      .slice(0, MAX_BULK_INVITES);
+
+    if (rows.length === 0) {
+      return NextResponse.json({ error: 'No invites to send.' }, { status: 400 });
+    }
+
+    const results = [];
+    for (const row of rows) {
+      results.push(await inviteOne(admin, hr, row));
+    }
+
+    return NextResponse.json({
+      succeeded: results.filter((r) => r.ok).map((r) => ({ id: r.id, email: r.email })),
+      failed: results.filter((r) => !r.ok).map((r) => ({ email: r.email, error: r.error })),
+    });
+  }
+
+  const result = await inviteOne(admin, hr, body);
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+  return NextResponse.json({ id: result.id, email: result.email });
+}
+
+type InviteResult =
+  | { ok: true; email: string; id: string | undefined }
+  | { ok: false; email: string; error: string; status: number };
+
+async function inviteOne(
+  admin: SupabaseClient,
+  hr: SessionUser,
+  row: Record<string, unknown>,
+): Promise<InviteResult> {
+  const email = typeof row.email === 'string' ? row.email.trim() : '';
+  const fullName = typeof row.fullName === 'string' ? row.fullName.trim() : '';
+
+  if (!email || !email.includes('@')) {
+    return { ok: false, email, error: 'A valid email address is required.', status: 400 };
+  }
+  if (!fullName) {
+    return { ok: false, email, error: 'Full name is required.', status: 400 };
+  }
+
   if (!(await checkRateLimit(admin, RATE_LIMITS.invite, hr.id))) {
-    return tooManyRequests(RATE_LIMITS.invite);
+    return { ok: false, email, error: 'Rate limit reached — try again shortly.', status: 429 };
   }
 
   // Supabase emails an invite; the `on_auth_user_created` trigger creates the
@@ -52,10 +99,7 @@ export async function POST(request: Request) {
   });
 
   if (error) {
-    return NextResponse.json(
-      { error: error.message || 'Could not send the invite.' },
-      { status: 400 },
-    );
+    return { ok: false, email, error: error.message || 'Could not send the invite.', status: 400 };
   }
 
   await recordAudit(admin, hr, {
@@ -66,7 +110,7 @@ export async function POST(request: Request) {
     detail: { email, full_name: fullName },
   });
 
-  return NextResponse.json({ id: data.user?.id, email });
+  return { ok: true, email, id: data.user?.id };
 }
 
 export async function PATCH(request: Request) {
