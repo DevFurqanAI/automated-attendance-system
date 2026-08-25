@@ -50,6 +50,8 @@ export async function POST(request: Request) {
   return NextResponse.json(data);
 }
 
+const TIME_SHAPE = /^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/;
+
 export function parseBranchInput(body: Record<string, unknown>):
   | {
       value: {
@@ -58,6 +60,7 @@ export function parseBranchInput(body: Record<string, unknown>):
         longitude: number;
         radius_meters: number;
         weekly_off_days?: number[];
+        expected_start_time?: string | null;
       };
     }
   | { error: string } {
@@ -88,6 +91,14 @@ export function parseBranchInput(body: Record<string, unknown>):
     weeklyOffDays = body.weeklyOffDays;
   }
 
+  let expectedStartTime: string | null | undefined;
+  if (body.expectedStartTime !== undefined) {
+    if (body.expectedStartTime !== null && !TIME_SHAPE.test(String(body.expectedStartTime))) {
+      return { error: 'expectedStartTime must be "HH:MM" (24-hour), or null.' };
+    }
+    expectedStartTime = body.expectedStartTime as string | null;
+  }
+
   return {
     value: {
       name,
@@ -95,6 +106,7 @@ export function parseBranchInput(body: Record<string, unknown>):
       longitude,
       radius_meters: Math.round(radius),
       ...(weeklyOffDays !== undefined ? { weekly_off_days: weeklyOffDays } : {}),
+      ...(expectedStartTime !== undefined ? { expected_start_time: expectedStartTime } : {}),
     },
   };
 }

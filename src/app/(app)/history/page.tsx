@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { lateMinutes, resolveExpectedStartTime } from '@/lib/attendance/lateness';
 import { StatusBadge } from '@/components/StatusBadge';
 import {
   formatDate,
@@ -27,7 +28,7 @@ export default async function HistoryPage() {
   const user = (await getSessionUser())!;
   const supabase = await createClient();
 
-  const [{ data }, { data: leaveRows }, { data: absenceRows }, { data: openDisputes }] =
+  const [{ data }, { data: leaveRows }, { data: absenceRows }, { data: openDisputes }, { data: branchStarts }] =
     await Promise.all([
       supabase
         .from('attendance')
@@ -56,9 +57,16 @@ export default async function HistoryPage() {
         .eq('employee_id', user.id)
         .eq('status', 'open')
         .returns<{ attendance_id: string }[]>(),
+      supabase
+        .from('branches_public')
+        .select('id, expected_start_time')
+        .returns<{ id: string; expected_start_time: string | null }[]>(),
     ]);
 
   const disputedIds = new Set((openDisputes ?? []).map((d) => d.attendance_id));
+  const branchStartById = new Map(
+    (branchStarts ?? []).map((b) => [b.id, b.expected_start_time]),
+  );
 
   const rows = data ?? [];
 
@@ -175,6 +183,17 @@ export default async function HistoryPage() {
                   ? row.claimed_check_out_time
                   : row.check_out_time;
 
+                const late =
+                  row.check_in_time && !showClaim
+                    ? lateMinutes(
+                        row.check_in_time,
+                        resolveExpectedStartTime(
+                          user.employee.expected_start_time,
+                          row.branch_id ? (branchStartById.get(row.branch_id) ?? null) : null,
+                        ),
+                      )
+                    : null;
+
                 return (
                   <tr key={row.id} className="border-b border-line last:border-0">
                     <Td>{formatDate(inTime ?? row.submitted_at)}</Td>
@@ -182,6 +201,11 @@ export default async function HistoryPage() {
                     <Td>
                       {formatTime(inTime)}
                       {showClaim && <ClaimTag />}
+                      {late != null && (
+                        <span className="ml-1.5 text-xs font-semibold text-status-flagged">
+                          Late {late}m
+                        </span>
+                      )}
                     </Td>
                     <Td>{formatTime(outTime)}</Td>
                     <Td className="tabular-nums">

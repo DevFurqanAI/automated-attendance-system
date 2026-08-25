@@ -258,6 +258,7 @@ function BranchCard({
 }) {
   const router = useRouter();
   const [offDays, setOffDays] = useState<number[]>(branch.weekly_off_days);
+  const [expectedStart, setExpectedStart] = useState(branch.expected_start_time?.slice(0, 5) ?? '');
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [calendarForm, setCalendarForm] = useState({
     date: '',
@@ -284,6 +285,7 @@ function BranchCard({
         longitude: branch.longitude,
         radius_meters: branch.radius_meters,
         weeklyOffDays: offDays,
+        expectedStartTime: expectedStart || null,
       }),
     });
     if (!response.ok) {
@@ -381,6 +383,20 @@ function BranchCard({
               </button>
             ))}
           </div>
+          <div className="mt-3">
+            <label className="field-label text-xs" htmlFor={`start-${branch.id}`}>
+              Expected start time{' '}
+              <span className="font-normal text-ink-faint">(optional — for late-arrival display)</span>
+            </label>
+            <input
+              id={`start-${branch.id}`}
+              type="time"
+              className="field w-32 text-sm"
+              value={expectedStart}
+              onChange={(e) => setExpectedStart(e.target.value)}
+            />
+          </div>
+
           <button
             type="button"
             className="btn-secondary mt-2"

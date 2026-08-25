@@ -18,6 +18,8 @@ function summarise(row: AuditRow): string | null {
       return `${d.from} → ${d.to}`;
     case 'employee.leave_balance_change':
       return `${d.from} → ${d.to} days`;
+    case 'employee.expected_start_time_change':
+      return `${d.from ?? '—'} → ${d.to ?? '—'}`;
     case 'employee.delete':
       return [d.full_name, d.email].filter(Boolean).join(' · ') || null;
     case 'absence.hr_create':

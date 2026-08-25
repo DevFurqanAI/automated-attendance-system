@@ -28,6 +28,8 @@ export interface Branch {
   created_at: string;
   /** 0=Sunday..6=Saturday. This branch's default weekly off days. */
   weekly_off_days: number[];
+  /** "HH:MM:SS" or null. Default expected shift start — see lateMinutes(). */
+  expected_start_time: string | null;
 }
 
 /** Only ever loaded server-side — carries the QR signing secret. */
@@ -49,6 +51,8 @@ export interface Employee {
   leave_balance_days: number;
   /** In-app notifications always send regardless; this gates the email mirror only. */
   email_notifications_enabled: boolean;
+  /** "HH:MM:SS" or null. Overrides the branch's expected_start_time when set. */
+  expected_start_time: string | null;
 }
 
 export interface Attendance {

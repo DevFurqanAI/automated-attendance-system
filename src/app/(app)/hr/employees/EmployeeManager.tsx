@@ -951,6 +951,28 @@ export function EmployeeManager({
                         Reset to branch default
                       </button>
                     )}
+                    <div className="mt-2 border-t border-line pt-2">
+                      <label
+                        className="block text-[10px] font-semibold uppercase text-ink-faint"
+                        htmlFor={`start-${emp.id}`}
+                      >
+                        Expected start
+                      </label>
+                      <input
+                        id={`start-${emp.id}`}
+                        type="time"
+                        className="field mt-0.5 w-24 text-xs"
+                        defaultValue={emp.expected_start_time?.slice(0, 5) ?? ''}
+                        disabled={busyId === emp.id}
+                        onBlur={(e) => {
+                          const value = e.target.value || null;
+                          const current = emp.expected_start_time?.slice(0, 5) ?? null;
+                          if (value !== current) {
+                            update(emp.id, { expectedStartTime: value });
+                          }
+                        }}
+                      />
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <input

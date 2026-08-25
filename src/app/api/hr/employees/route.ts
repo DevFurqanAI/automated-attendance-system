@@ -297,6 +297,22 @@ export async function PATCH(request: Request) {
     update.leave_balance_days = days;
   }
 
+  // Personal expected-start-time override — see resolveExpectedStartTime()
+  // in src/lib/attendance/lateness.ts. `null` clears it, falling back to
+  // the employee's branch.
+  if (body.expectedStartTime !== undefined) {
+    if (
+      body.expectedStartTime !== null &&
+      !/^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/.test(String(body.expectedStartTime))
+    ) {
+      return NextResponse.json(
+        { error: 'expectedStartTime must be "HH:MM" (24-hour), or null.' },
+        { status: 400 },
+      );
+    }
+    update.expected_start_time = body.expectedStartTime;
+  }
+
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: 'Nothing to update.' }, { status: 400 });
   }
@@ -398,6 +414,19 @@ export async function PATCH(request: Request) {
       entityId: id,
       subjectId: id,
       detail: { from: target.leave_balance_days, to: update.leave_balance_days },
+    });
+  }
+
+  if (
+    update.expected_start_time !== undefined &&
+    update.expected_start_time !== target.expected_start_time
+  ) {
+    await recordAudit(admin, hr, {
+      action: 'employee.expected_start_time_change',
+      entityType: 'employee',
+      entityId: id,
+      subjectId: id,
+      detail: { from: target.expected_start_time, to: update.expected_start_time },
     });
   }
 
