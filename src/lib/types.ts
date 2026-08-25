@@ -16,7 +16,8 @@ export type FlagReason =
   | 'out_of_range'
   | 'branch_mismatch'
   | 'force_closed'
-  | 'remote_checkout_requested';
+  | 'remote_checkout_requested'
+  | 'outside_checkin_window';
 
 export interface Branch {
   id: string;
@@ -30,6 +31,9 @@ export interface Branch {
   weekly_off_days: number[];
   /** "HH:MM:SS" or null. Default expected shift start — see lateMinutes(). */
   expected_start_time: string | null;
+  /** "HH:MM:SS" or null (either null = unrestricted). See isWithinCheckinWindow(). */
+  checkin_window_start: string | null;
+  checkin_window_end: string | null;
 }
 
 /** Only ever loaded server-side — carries the QR signing secret. */
@@ -97,6 +101,7 @@ export const FLAG_REASON_LABELS: Record<FlagReason, string> = {
   branch_mismatch: 'Checked out at a different branch',
   force_closed: 'Closed by HR (no check-out scan)',
   remote_checkout_requested: 'Employee requested a remote checkout',
+  outside_checkin_window: 'Checked in outside the branch’s allowed hours',
 };
 
 export const REMOTE_REASONS = [

@@ -384,6 +384,8 @@ function BranchCard({
   const router = useRouter();
   const [offDays, setOffDays] = useState<number[]>(branch.weekly_off_days);
   const [expectedStart, setExpectedStart] = useState(branch.expected_start_time?.slice(0, 5) ?? '');
+  const [windowStart, setWindowStart] = useState(branch.checkin_window_start?.slice(0, 5) ?? '');
+  const [windowEnd, setWindowEnd] = useState(branch.checkin_window_end?.slice(0, 5) ?? '');
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [calendarForm, setCalendarForm] = useState({
     date: '',
@@ -411,6 +413,8 @@ function BranchCard({
         radius_meters: branch.radius_meters,
         weeklyOffDays: offDays,
         expectedStartTime: expectedStart || null,
+        checkinWindowStart: windowStart || null,
+        checkinWindowEnd: windowEnd || null,
       }),
     });
     if (!response.ok) {
@@ -520,6 +524,32 @@ function BranchCard({
               value={expectedStart}
               onChange={(e) => setExpectedStart(e.target.value)}
             />
+          </div>
+
+          <div className="mt-3">
+            <label className="field-label text-xs">
+              Check-in window{' '}
+              <span className="font-normal text-ink-faint">
+                (optional — a check-in outside these hours is flagged, not blocked)
+              </span>
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="time"
+                aria-label="Window start"
+                className="field w-32 text-sm"
+                value={windowStart}
+                onChange={(e) => setWindowStart(e.target.value)}
+              />
+              <span className="text-sm text-ink-faint">to</span>
+              <input
+                type="time"
+                aria-label="Window end"
+                className="field w-32 text-sm"
+                value={windowEnd}
+                onChange={(e) => setWindowEnd(e.target.value)}
+              />
+            </div>
           </div>
 
           <button

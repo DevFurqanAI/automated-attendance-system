@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isWithinCheckinWindow } from '@/lib/attendance/checkin-window';
 import { detectSpoofing } from '@/lib/attendance/detect';
 import { isValidCoords } from '@/lib/geo';
 import { hrAdminIds, notify } from '@/lib/notify';
@@ -133,7 +134,17 @@ export async function POST(request: Request) {
   });
 
   const now = new Date().toISOString();
-  const status = detection.flagReason ? 'flagged' : 'approved';
+
+  // A location/spoofing flag outranks the check-in window — a fake or
+  // out-of-range fix is a stronger signal than arriving outside business
+  // hours — but the window still beats no flag at all.
+  const outsideWindow = !isWithinCheckinWindow(
+    now,
+    branch.checkin_window_start,
+    branch.checkin_window_end,
+  );
+  const flagReason = detection.flagReason ?? (outsideWindow ? 'outside_checkin_window' : null);
+  const status = flagReason ? 'flagged' : 'approved';
 
   const { data: inserted, error } = await admin
     .from('attendance')
@@ -147,7 +158,7 @@ export async function POST(request: Request) {
       check_in_accuracy_meters: accuracy,
       method: 'qr_gps',
       status,
-      flag_reason: detection.flagReason,
+      flag_reason: flagReason,
     })
     .select('id')
     .single();
@@ -162,8 +173,8 @@ export async function POST(request: Request) {
   // A flag is the one outcome nobody would otherwise learn about in time: the
   // employee thinks they are checked in, and HR only finds out if the dashboard
   // happens to be open.
-  if (status === 'flagged' && detection.flagReason) {
-    const label = FLAG_REASON_LABELS[detection.flagReason];
+  if (status === 'flagged' && flagReason) {
+    const label = FLAG_REASON_LABELS[flagReason];
     await notify(admin, [
       {
         recipientId: user.id,
@@ -192,7 +203,7 @@ export async function POST(request: Request) {
     branchName: branch.name,
     checkInTime: now,
     distanceMeters: Math.round(detection.distanceMeters),
-    flagReason: detection.flagReason,
+    flagReason,
     flagDetail: detection.detail,
   });
 }

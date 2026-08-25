@@ -61,6 +61,8 @@ export function parseBranchInput(body: Record<string, unknown>):
         radius_meters: number;
         weekly_off_days?: number[];
         expected_start_time?: string | null;
+        checkin_window_start?: string | null;
+        checkin_window_end?: string | null;
       };
     }
   | { error: string } {
@@ -99,6 +101,22 @@ export function parseBranchInput(body: Record<string, unknown>):
     expectedStartTime = body.expectedStartTime as string | null;
   }
 
+  let checkinWindowStart: string | null | undefined;
+  if (body.checkinWindowStart !== undefined) {
+    if (body.checkinWindowStart !== null && !TIME_SHAPE.test(String(body.checkinWindowStart))) {
+      return { error: 'checkinWindowStart must be "HH:MM" (24-hour), or null.' };
+    }
+    checkinWindowStart = body.checkinWindowStart as string | null;
+  }
+
+  let checkinWindowEnd: string | null | undefined;
+  if (body.checkinWindowEnd !== undefined) {
+    if (body.checkinWindowEnd !== null && !TIME_SHAPE.test(String(body.checkinWindowEnd))) {
+      return { error: 'checkinWindowEnd must be "HH:MM" (24-hour), or null.' };
+    }
+    checkinWindowEnd = body.checkinWindowEnd as string | null;
+  }
+
   return {
     value: {
       name,
@@ -107,6 +125,8 @@ export function parseBranchInput(body: Record<string, unknown>):
       radius_meters: Math.round(radius),
       ...(weeklyOffDays !== undefined ? { weekly_off_days: weeklyOffDays } : {}),
       ...(expectedStartTime !== undefined ? { expected_start_time: expectedStartTime } : {}),
+      ...(checkinWindowStart !== undefined ? { checkin_window_start: checkinWindowStart } : {}),
+      ...(checkinWindowEnd !== undefined ? { checkin_window_end: checkinWindowEnd } : {}),
     },
   };
 }
