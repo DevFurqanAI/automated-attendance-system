@@ -36,6 +36,9 @@ export const RATE_LIMITS = {
   /** Filed by hand, rarely; the headroom is for a family emergency needing
    *  a multi-day request plus a correction, not scripted abuse. */
   leave: { name: 'leave', limit: 10, windowSeconds: 3600 },
+  /** At most one open shift at a time, so there is only ever one of these to
+   *  file; the headroom is for correcting a typo'd time, not scripted abuse. */
+  remoteCheckout: { name: 'remote-checkout', limit: 10, windowSeconds: 3600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**

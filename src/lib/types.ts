@@ -9,7 +9,8 @@ export type FlagReason =
   | 'coordinate_jitter'
   | 'out_of_range'
   | 'branch_mismatch'
-  | 'force_closed';
+  | 'force_closed'
+  | 'remote_checkout_requested';
 
 export interface Branch {
   id: string;
@@ -81,6 +82,7 @@ export const FLAG_REASON_LABELS: Record<FlagReason, string> = {
   out_of_range: 'Outside branch geofence',
   branch_mismatch: 'Checked out at a different branch',
   force_closed: 'Closed by HR (no check-out scan)',
+  remote_checkout_requested: 'Employee requested a remote checkout',
 };
 
 export const REMOTE_REASONS = [

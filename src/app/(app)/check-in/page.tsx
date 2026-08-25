@@ -12,7 +12,9 @@ export default async function CheckInPage() {
   // "check in" or "check out".
   const { data: openRows } = await supabase
     .from('attendance')
-    .select('id, check_in_time, status, branches:branch_id ( name )')
+    .select(
+      'id, check_in_time, status, claimed_check_out_time, branches:branch_id ( name )',
+    )
     .eq('employee_id', user!.id)
     .eq('method', 'qr_gps')
     .in('status', ['approved', 'flagged'])
@@ -32,6 +34,7 @@ export default async function CheckInPage() {
               branchName:
                 (open.branches as unknown as { name: string } | null)?.name ??
                 'Unknown branch',
+              claimedCheckOutTime: open.claimed_check_out_time as string | null,
             }
           : null
       }

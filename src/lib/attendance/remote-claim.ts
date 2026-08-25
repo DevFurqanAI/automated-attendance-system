@@ -58,3 +58,35 @@ export function validateRemoteClaim(
 
   return { ok: true, checkIn: claimedCheckIn, checkOut: claimedCheckOut };
 }
+
+export type CheckoutClaimValidation =
+  | { ok: true; checkOut: Date }
+  | { ok: false; error: string };
+
+/**
+ * Validation for a claimed check-out on an already-open qr_gps shift (an
+ * employee who left mid-shift and cannot get back to scan out — see
+ * POST /api/attendance/remote-checkout). Narrower than validateRemoteClaim:
+ * there is no age window to re-check, since the shift's own check_in_time
+ * already anchors it — only "not before check-in" and "not in the future"
+ * matter here.
+ */
+export function validateRemoteCheckoutClaim(
+  checkInTime: Date,
+  claimedCheckOut: Date | null,
+  now: Date = new Date(),
+): CheckoutClaimValidation {
+  const checkOut = claimedCheckOut ?? now;
+
+  if (Number.isNaN(checkOut.getTime())) {
+    return { ok: false, error: 'The claimed check-out time is not a valid date.' };
+  }
+  if (checkOut.getTime() < checkInTime.getTime()) {
+    return { ok: false, error: 'Claimed check-out cannot be before check-in.' };
+  }
+  if (checkOut.getTime() > now.getTime() + FUTURE_TOLERANCE_MS) {
+    return { ok: false, error: 'Claimed check-out cannot be in the future.' };
+  }
+
+  return { ok: true, checkOut };
+}

@@ -349,8 +349,13 @@ function ReviewCard({
   // go through the normal approve/decline flow. Lost phone, crashed app, or
   // simply forgetting — see 'attendance.force_checkout' in src/lib/audit.ts.
   const stuckOpen = !remote && !row.check_out_time;
+  // The employee may have already claimed a time via /api/attendance/remote-checkout
+  // (flag_reason === 'remote_checkout_requested') — pre-fill it rather than
+  // defaulting to "now" and making HR re-enter what was already submitted.
   const [forceCheckoutTime, setForceCheckoutTime] = useState(
-    toLocalInputValue(new Date()),
+    row.claimed_check_out_time
+      ? toLocalInputValue(new Date(row.claimed_check_out_time))
+      : toLocalInputValue(new Date()),
   );
 
   // HR may correct a claim before approving it (spec §7.4.7).
@@ -517,8 +522,16 @@ function ReviewCard({
       {stuckOpen ? (
         <div className="mt-5 border-t border-line pt-4">
           <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-muted">
-            No check-out was ever scanned — close this shift with a time you supply
+            {row.claimed_check_out_time
+              ? 'Employee requested a remote checkout — review the claimed time below'
+              : 'No check-out was ever scanned — close this shift with a time you supply'}
           </p>
+          {row.claimed_check_out_time && row.remote_reason && (
+            <p className="mb-3 text-sm text-ink-muted">
+              <span className="font-semibold text-ink">Reason:</span>{' '}
+              {row.remote_reason}
+            </p>
+          )}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
             <div>
               <label className="field-label text-xs" htmlFor={`force-out-${row.id}`}>

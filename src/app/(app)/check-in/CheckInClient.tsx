@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useRef, useState } from 'react';
 import { QrScanner } from '@/components/QrScanner';
 import { StatusBadge } from '@/components/StatusBadge';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, toLocalInputValue } from '@/lib/format';
 import { captureLocation, LocationError } from '@/lib/geolocation';
 import { FLAG_REASON_LABELS, type FlagReason, type Status } from '@/lib/types';
 
@@ -13,6 +13,8 @@ interface OpenShift {
   id: string;
   checkInTime: string;
   branchName: string;
+  /** Set once a remote checkout has already been requested for this shift. */
+  claimedCheckOutTime: string | null;
 }
 
 interface Result {
@@ -186,6 +188,8 @@ export function CheckInClient({ openShift }: { openShift: OpenShift | null }) {
         </div>
       )}
 
+      {openShift && <RemoteCheckoutSection openShift={openShift} onSubmitted={() => router.refresh()} />}
+
       {phase === 'idle' && (
         <button
           type="button"
@@ -242,6 +246,148 @@ export function CheckInClient({ openShift }: { openShift: OpenShift | null }) {
         </Link>
       </div>
     </div>
+  );
+}
+
+/**
+ * For an employee who checked in via QR+GPS, then left for a meeting or an
+ * errand and never made it back to scan out — there is otherwise no way to
+ * close that shift (check-out requires a branch's QR code). Submits a
+ * claimed check-out time + reason against the EXISTING open shift; HR
+ * reviews it from there (see POST /api/attendance/remote-checkout).
+ */
+function RemoteCheckoutSection({
+  openShift,
+  onSubmitted,
+}: {
+  openShift: OpenShift;
+  onSubmitted: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [time, setTime] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(Boolean(openShift.claimedCheckOutTime));
+
+  if (done) {
+    return (
+      <div className="mt-4 border-l-4 border-status-flagged bg-status-flagged-bg p-4">
+        <p className="text-sm font-semibold text-status-flagged">
+          Remote checkout requested
+        </p>
+        <p className="mt-1 text-sm text-ink-muted">
+          Claimed{' '}
+          {formatDateTime(
+            openShift.claimedCheckOutTime ?? new Date().toISOString(),
+          )}
+          . An HR administrator will review it — this shift stays open until
+          they do.
+        </p>
+      </div>
+    );
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+
+    const response = await fetch('/api/attendance/remote-checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reason,
+        claimedCheckOutTime: time ? new Date(time).toISOString() : undefined,
+      }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setError(data.error ?? 'Could not submit the request.');
+      setBusy(false);
+      return;
+    }
+
+    setDone(true);
+    setBusy(false);
+    onSubmitted();
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="mt-3 text-sm font-semibold text-brand-primary underline"
+        onClick={() => setOpen(true)}
+      >
+        Can&apos;t get back to scan out? Request a remote checkout
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-4 border-l-4 border-line-strong bg-surface-muted p-4">
+      <p className="text-sm font-semibold text-ink">Request a remote checkout</p>
+      <p className="mt-1 text-xs text-ink-muted">
+        For when you left mid-shift and won&apos;t be back at a branch — an HR
+        administrator will review and close this shift.
+      </p>
+
+      <div className="mt-3">
+        <label htmlFor="remoteCheckoutReason" className="field-label">
+          Reason
+        </label>
+        <textarea
+          id="remoteCheckoutReason"
+          className="field"
+          rows={2}
+          maxLength={500}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          required
+        />
+      </div>
+
+      <div className="mt-3">
+        <label htmlFor="remoteCheckoutTime" className="field-label">
+          When did you actually leave?{' '}
+          <span className="font-normal text-ink-faint">(defaults to now)</span>
+        </label>
+        <input
+          id="remoteCheckoutTime"
+          type="datetime-local"
+          className="field"
+          value={time}
+          max={toLocalInputValue(new Date())}
+          onChange={(e) => setTime(e.target.value)}
+        />
+      </div>
+
+      {error && (
+        <p
+          role="alert"
+          className="mt-3 border-l-4 border-status-flagged bg-status-flagged-bg p-3 text-sm font-medium text-status-flagged"
+        >
+          {error}
+        </p>
+      )}
+
+      <div className="mt-4 flex gap-2">
+        <button type="submit" className="btn-primary" disabled={busy || !reason.trim()}>
+          {busy ? 'Submitting…' : 'Submit for review'}
+        </button>
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={busy}
+          onClick={() => setOpen(false)}
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 
