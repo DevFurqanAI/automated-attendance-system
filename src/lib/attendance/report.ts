@@ -264,3 +264,122 @@ function csvCell(value: string): string {
   if (/[",\r\n]/.test(v)) v = `"${v.replace(/"/g, '""')}"`;
   return v;
 }
+
+export interface DailyTrendPoint {
+  date: string;
+  present: number;
+  absent: number;
+  leave: number;
+}
+
+/**
+ * Company-wide daily present/absent/leave counts over a range, for the HR
+ * analytics dashboard. Three fixed-cost queries regardless of range length
+ * or headcount — aggregated in JS rather than one query per employee per
+ * day (which is what loadAttendanceSummary does; fine for one employee's
+ * report, too expensive for a 30+ day trend across everyone).
+ *
+ * `present` counts distinct employees with an approved check-in that day;
+ * `absent` is a direct absences-table count; `leave` counts approved leave
+ * requests whose range covers the day. Branch filtering only narrows
+ * present/absent (attendance and absences both carry branch_id); leave
+ * requests don't, so a branch filter still counts leave company-wide — an
+ * acknowledged approximation, noted in the UI.
+ */
+export async function loadDailyTrend(
+  supabase: SupabaseClient,
+  filters: { from: string; to: string; branchId?: string | null },
+): Promise<DailyTrendPoint[]> {
+  const fromDate = filters.from.slice(0, 10);
+  const toDate = filters.to.slice(0, 10);
+
+  const dates: string[] = [];
+  for (
+    let d = new Date(`${fromDate}T00:00:00Z`);
+    d <= new Date(`${toDate}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1)
+  ) {
+    dates.push(d.toISOString().slice(0, 10));
+  }
+
+  let attendanceQuery = supabase
+    .from('attendance')
+    .select('employee_id, check_in_time')
+    .eq('status', 'approved')
+    .not('check_in_time', 'is', null)
+    .gte('check_in_time', `${fromDate}T00:00:00Z`)
+    .lte('check_in_time', `${toDate}T23:59:59.999Z`);
+  if (filters.branchId) attendanceQuery = attendanceQuery.eq('branch_id', filters.branchId);
+
+  let absenceQuery = supabase
+    .from('absences')
+    .select('date')
+    .gte('date', fromDate)
+    .lte('date', toDate);
+  if (filters.branchId) absenceQuery = absenceQuery.eq('branch_id', filters.branchId);
+
+  const [{ data: attendanceRows }, { data: absenceRows }, { data: leaveRows }] =
+    await Promise.all([
+      attendanceQuery.returns<{ employee_id: string; check_in_time: string }[]>(),
+      absenceQuery.returns<{ date: string }[]>(),
+      supabase
+        .from('leave_requests')
+        .select('from_date, to_date')
+        .eq('status', 'approved')
+        .lte('from_date', toDate)
+        .gte('to_date', fromDate)
+        .returns<{ from_date: string; to_date: string }[]>(),
+    ]);
+
+  const presentByDay = new Map<string, Set<string>>();
+  for (const row of attendanceRows ?? []) {
+    const day = row.check_in_time.slice(0, 10);
+    if (!presentByDay.has(day)) presentByDay.set(day, new Set());
+    presentByDay.get(day)!.add(row.employee_id);
+  }
+
+  const absentByDay = new Map<string, number>();
+  for (const row of absenceRows ?? []) {
+    absentByDay.set(row.date, (absentByDay.get(row.date) ?? 0) + 1);
+  }
+
+  return dates.map((date) => ({
+    date,
+    present: presentByDay.get(date)?.size ?? 0,
+    absent: absentByDay.get(date) ?? 0,
+    leave: (leaveRows ?? []).filter((l) => date >= l.from_date && date <= l.to_date).length,
+  }));
+}
+
+export interface BranchHours {
+  branchName: string;
+  hours: number;
+}
+
+/** Total approved hours per branch over a range, for the analytics dashboard. */
+export async function loadBranchHours(
+  supabase: SupabaseClient,
+  filters: { from: string; to: string },
+): Promise<BranchHours[]> {
+  const { data } = await supabase
+    .from('attendance')
+    .select('check_in_time, check_out_time, branches:branch_id ( name )')
+    .eq('status', 'approved')
+    .not('check_in_time', 'is', null)
+    .gte('check_in_time', filters.from)
+    .lte('check_in_time', filters.to)
+    .returns<
+      { check_in_time: string; check_out_time: string | null; branches: { name: string } | null }[]
+    >();
+
+  const byBranch = new Map<string, number>();
+  for (const row of data ?? []) {
+    const name = row.branches?.name ?? 'Remote / unassigned';
+    const hours = hoursWorked(row.check_in_time, row.check_out_time) ?? 0;
+    byBranch.set(name, (byBranch.get(name) ?? 0) + hours);
+  }
+
+  return [...byBranch.entries()]
+    .map(([branchName, hours]) => ({ branchName, hours }))
+    .sort((a, b) => b.hours - a.hours);
+}

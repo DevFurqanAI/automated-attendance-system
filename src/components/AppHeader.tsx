@@ -22,6 +22,7 @@ const PRIMARY_NAV: NavItem[] = [
 const HR_NAV: NavItem[] = [
   { href: '/hr', label: 'Review' },
   { href: '/hr/reports', label: 'Reports' },
+  { href: '/hr/analytics', label: 'Analytics' },
   { href: '/hr/branches', label: 'Branches' },
   { href: '/hr/employees', label: 'Employees' },
   { href: '/hr/audit', label: 'Audit' },
