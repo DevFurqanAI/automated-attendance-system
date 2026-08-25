@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
 import { validateRemoteClaim } from '@/lib/attendance/remote-claim';
+import { TZ } from '@/lib/format';
 import { isValidCoords } from '@/lib/geo';
 import { hrAdminIds, notify } from '@/lib/notify';
 import { RATE_LIMITS, checkRateLimit, tooManyRequests } from '@/lib/rate-limit';
 import { createAdminClient, getSessionUser } from '@/lib/supabase/server';
 import type { Attendance } from '@/lib/types';
+
+const dayInTz = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
 
 /**
  * POST /api/attendance/remote — spec §7.4
@@ -89,6 +92,34 @@ export async function POST(request: Request) {
 
   if (!(await checkRateLimit(admin, RATE_LIMITS.remote, user.id))) {
     return tooManyRequests(RATE_LIMITS.remote);
+  }
+
+  // Guards against a double-tap on a slow connection creating two pending
+  // requests for the same claimed day — not a hard business rule (withdrawing
+  // the first one and resubmitting is always available), just a duplicate
+  // catch. Scoped to 'pending': an already-reviewed request for the same day
+  // is a real correction, not a double-submit.
+  const { data: pending } = await admin
+    .from('attendance')
+    .select('id, claimed_check_in_time')
+    .eq('employee_id', user.id)
+    .eq('method', 'remote_request')
+    .eq('status', 'pending')
+    .returns<{ id: string; claimed_check_in_time: string | null }[]>();
+
+  const claimedDay = dayInTz(claimedCheckIn);
+  const duplicate = (pending ?? []).find(
+    (r) => r.claimed_check_in_time && dayInTz(new Date(r.claimed_check_in_time)) === claimedDay,
+  );
+  if (duplicate) {
+    return NextResponse.json(
+      {
+        error:
+          'You already have a pending remote request for that day. Withdraw ' +
+          'it first if you need to resubmit.',
+      },
+      { status: 409 },
+    );
   }
 
   const { data: inserted, error } = await admin

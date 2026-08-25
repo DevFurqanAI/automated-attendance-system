@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { loadAttendanceSummary, loadReport } from '@/lib/attendance/report';
 import { formatDateTime, formatDuration } from '@/lib/format';
 import { createClient, getHrUser } from '@/lib/supabase/server';
-import type { Branch, Employee } from '@/lib/types';
+import { METHOD_LABELS, type Branch, type Employee } from '@/lib/types';
 import { ReportFilters } from './ReportFilters';
 
 export const metadata: Metadata = { title: 'Reports' };
@@ -153,7 +153,7 @@ export default async function ReportsPage({
                     {formatDuration(e.hours)}
                   </td>
                   <td className="px-4 py-3">
-                    {e.method === 'qr_gps' ? 'QR + GPS' : 'Remote'}
+                    {METHOD_LABELS[e.method]}
                   </td>
                 </tr>
               ))}

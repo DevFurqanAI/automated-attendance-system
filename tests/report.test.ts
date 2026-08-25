@@ -82,6 +82,14 @@ describe('toCsv', () => {
 
   it('labels an approved remote entry distinctly from a QR one', () => {
     const csv = toCsv([entry({ method: 'remote_request' })]);
-    expect(csv).toContain('Remote (approved)');
+    const row = csv.trim().split('\r\n')[1];
+    expect(row).toContain('Remote');
+    expect(row).not.toContain('QR + GPS');
+  });
+
+  it('labels an HR-marked entry distinctly from the other two methods', () => {
+    const csv = toCsv([entry({ method: 'hr_manual' })]);
+    const row = csv.trim().split('\r\n')[1];
+    expect(row).toContain('Marked by HR');
   });
 });

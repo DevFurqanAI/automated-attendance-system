@@ -7,7 +7,13 @@ import {
   hoursWorked,
 } from '@/lib/format';
 import { createClient, getSessionUser } from '@/lib/supabase/server';
-import { FLAG_REASON_LABELS, type Absence, type AttendanceRow, type LeaveRequest } from '@/lib/types';
+import {
+  FLAG_REASON_LABELS,
+  METHOD_LABELS,
+  type Absence,
+  type AttendanceRow,
+  type LeaveRequest,
+} from '@/lib/types';
 
 export const metadata: Metadata = { title: 'My history' };
 
@@ -159,7 +165,7 @@ export default async function HistoryPage() {
                 return (
                   <tr key={row.id} className="border-b border-line last:border-0">
                     <Td>{formatDate(inTime ?? row.submitted_at)}</Td>
-                    <Td>{row.branches?.name ?? (remote ? 'Remote' : '—')}</Td>
+                    <Td>{row.branches?.name ?? (row.method === 'qr_gps' ? '—' : METHOD_LABELS[row.method])}</Td>
                     <Td>
                       {formatTime(inTime)}
                       {showClaim && <ClaimTag />}

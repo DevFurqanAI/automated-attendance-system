@@ -1,7 +1,13 @@
 /** Shared domain types, mirroring the Postgres schema in supabase/migrations. */
 
 export type Role = 'employee' | 'hr_admin' | 'super_admin';
-export type Method = 'qr_gps' | 'remote_request';
+export type Method = 'qr_gps' | 'remote_request' | 'hr_manual';
+
+export const METHOD_LABELS: Record<Method, string> = {
+  qr_gps: 'QR + GPS',
+  remote_request: 'Remote',
+  hr_manual: 'Marked by HR',
+};
 export type Status = 'approved' | 'pending' | 'flagged' | 'declined' | 'withdrawn';
 export type FlagReason =
   | 'mock_location_detected'

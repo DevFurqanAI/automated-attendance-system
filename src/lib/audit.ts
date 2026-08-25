@@ -13,6 +13,7 @@ export type AuditAction =
   | 'attendance.approve'
   | 'attendance.decline'
   | 'attendance.force_checkout'
+  | 'attendance.hr_create'
   | 'leave.approve'
   | 'leave.decline'
   | 'absence.reversed'
@@ -22,6 +23,7 @@ export type AuditAction =
   | 'employee.deactivate'
   | 'employee.branch_change'
   | 'employee.weekly_off_days_change'
+  | 'employee.email_change'
   | 'branch.create'
   | 'branch.update'
   | 'branch.qr_rotate'
@@ -72,6 +74,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   'attendance.approve': 'Approved attendance',
   'attendance.decline': 'Declined attendance',
   'attendance.force_checkout': 'Force-closed an open shift',
+  'attendance.hr_create': 'Marked an employee present',
   'leave.approve': 'Approved leave request',
   'leave.decline': 'Declined leave request',
   'absence.reversed': 'Reversed a marked absence',
@@ -81,6 +84,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   'employee.deactivate': 'Deactivated employee',
   'employee.branch_change': 'Changed default branch',
   'employee.weekly_off_days_change': 'Changed weekly off days',
+  'employee.email_change': 'Changed work email',
   'branch.create': 'Created branch',
   'branch.update': 'Updated branch',
   'branch.qr_rotate': 'Rotated QR code',

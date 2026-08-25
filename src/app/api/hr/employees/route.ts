@@ -134,6 +134,20 @@ export async function PATCH(request: Request) {
     );
   }
 
+  // Changing an admin's sign-in email is access-affecting the same way
+  // deactivating one is — the same "no admin can strip another's access"
+  // reasoning as the active-flag guard above.
+  if (body.email !== undefined && target.role !== 'employee' && hr.employee.role !== 'super_admin') {
+    return NextResponse.json(
+      {
+        error:
+          `${target.full_name} is an HR administrator. Only a super ` +
+          'administrator can change another administrator’s email.',
+      },
+      { status: 403 },
+    );
+  }
+
   // A scoped hr_admin may only touch employees within their assigned
   // branches (or branch-less employees).
   if (hr.employee.role !== 'super_admin' && !(await isEmployeeVisibleTo(admin, hr, target))) {
@@ -143,7 +157,39 @@ export async function PATCH(request: Request) {
     );
   }
 
+  // Work email correction — a typo'd invite, or an employee's address
+  // changing. Updates the Supabase Auth identity first (the thing that
+  // actually gates sign-in); `employees.email` is kept in sync below.
+  // `email_confirm: true` skips a confirmation email — HR making this change
+  // is already the verification, the same trust level as inviteUserByEmail.
+  let newEmail: string | null = null;
+  if (body.email !== undefined) {
+    newEmail = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    if (!newEmail || !newEmail.includes('@')) {
+      return NextResponse.json(
+        { error: 'A valid email address is required.' },
+        { status: 400 },
+      );
+    }
+    if (newEmail !== target.email) {
+      const { error: authError } = await admin.auth.admin.updateUserById(id, {
+        email: newEmail,
+        email_confirm: true,
+      });
+      if (authError) {
+        return NextResponse.json(
+          { error: authError.message || 'Could not change the email address.' },
+          { status: 400 },
+        );
+      }
+    }
+  }
+
   const update: Record<string, unknown> = {};
+
+  if (newEmail !== null) {
+    update.email = newEmail;
+  }
 
   if (body.role !== undefined) {
     if (body.role !== 'employee' && body.role !== 'hr_admin' && body.role !== 'super_admin') {
@@ -285,6 +331,28 @@ export async function PATCH(request: Request) {
       subjectId: id,
       detail: { from: target.weekly_off_days, to: update.weekly_off_days },
     });
+  }
+
+  if (update.email !== undefined && update.email !== target.email) {
+    await recordAudit(admin, hr, {
+      action: 'employee.email_change',
+      entityType: 'employee',
+      entityId: id,
+      subjectId: id,
+      detail: { from: target.email, to: update.email },
+    });
+    // Sent to the NEW address — the whole point of the change is that the
+    // old one is no longer how this person is reached.
+    await notify(admin, [
+      {
+        recipientId: id,
+        kind: 'email_changed',
+        title: 'Your work email was changed',
+        body: `Changed by ${hr.employee.full_name}. New sign-in address: ${update.email}.`,
+        entityType: 'employee',
+        entityId: id,
+      },
+    ]);
   }
 
   return NextResponse.json({ id, ...update });

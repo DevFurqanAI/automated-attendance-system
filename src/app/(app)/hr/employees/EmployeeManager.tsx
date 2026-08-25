@@ -1,7 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
+import { toLocalInputValue } from '@/lib/format';
 import { WEEKDAY_LABELS, type Branch, type Employee, type Role } from '@/lib/types';
 
 export function EmployeeManager({
@@ -98,6 +99,68 @@ export function EmployeeManager({
     }
 
     setBusyId(null);
+    router.refresh();
+  }
+
+  const [editingEmailId, setEditingEmailId] = useState<string | null>(null);
+  const [emailDraft, setEmailDraft] = useState('');
+
+  function startEditEmail(emp: Employee) {
+    setEditingEmailId(emp.id);
+    setEmailDraft(emp.email);
+  }
+
+  async function saveEmail(id: string) {
+    await update(id, { email: emailDraft.trim() });
+    setEditingEmailId(null);
+  }
+
+  const [markPresentId, setMarkPresentId] = useState<string | null>(null);
+  const [markPresentForm, setMarkPresentForm] = useState({
+    checkIn: '',
+    checkOut: '',
+    branchId: '',
+    note: '',
+  });
+  const [markPresentBusy, setMarkPresentBusy] = useState(false);
+  const [markPresentError, setMarkPresentError] = useState<string | null>(null);
+
+  function openMarkPresent(id: string) {
+    setMarkPresentId(id);
+    setMarkPresentForm({ checkIn: toLocalInputValue(new Date()), checkOut: '', branchId: '', note: '' });
+    setMarkPresentError(null);
+  }
+
+  async function submitMarkPresent(employeeId: string) {
+    setMarkPresentBusy(true);
+    setMarkPresentError(null);
+
+    const response = await fetch('/api/hr/attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        employeeId,
+        checkInTime: markPresentForm.checkIn
+          ? new Date(markPresentForm.checkIn).toISOString()
+          : undefined,
+        checkOutTime: markPresentForm.checkOut
+          ? new Date(markPresentForm.checkOut).toISOString()
+          : undefined,
+        branchId: markPresentForm.branchId || undefined,
+        note: markPresentForm.note || undefined,
+      }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setMarkPresentError(data.error ?? 'Could not create the record.');
+      setMarkPresentBusy(false);
+      return;
+    }
+
+    setMarkPresentId(null);
+    setMarkPresentBusy(false);
     router.refresh();
   }
 
@@ -217,8 +280,13 @@ export function EmployeeManager({
               const canEditRoleAndBranch = isSuperAdmin && !isSelf;
               const canToggleActive =
                 !isSelf && (isSuperAdmin || emp.role === 'employee');
+              // Changing an admin's sign-in email is access-affecting like
+              // deactivating one — same restriction, no self-exclusion (the
+              // server allows self-edit; only the *other-admin* case is gated).
+              const canEditEmail = isSuperAdmin || emp.role === 'employee';
               return (
-                <tr key={emp.id} className="border-b border-line last:border-0">
+                <Fragment key={emp.id}>
+                <tr className="border-b border-line last:border-0">
                   <td className="px-4 py-3">
                     <span className="font-semibold text-ink">
                       {emp.full_name}
@@ -234,9 +302,47 @@ export function EmployeeManager({
                         ({emp.role === 'super_admin' ? 'super admin' : 'administrator'})
                       </span>
                     )}
-                    <span className="block text-xs text-ink-faint">
-                      {emp.email}
-                    </span>
+                    {editingEmailId === emp.id ? (
+                      <div className="mt-1 flex items-center gap-1">
+                        <input
+                          type="email"
+                          aria-label={`Email for ${emp.full_name}`}
+                          className="field text-xs"
+                          value={emailDraft}
+                          disabled={busyId === emp.id}
+                          onChange={(e) => setEmailDraft(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-brand-primary underline"
+                          disabled={busyId === emp.id || !emailDraft.trim()}
+                          onClick={() => saveEmail(emp.id)}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs text-ink-faint underline"
+                          disabled={busyId === emp.id}
+                          onClick={() => setEditingEmailId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="block text-xs text-ink-faint">
+                        {emp.email}
+                        {canEditEmail && (
+                          <button
+                            type="button"
+                            className="ml-2 underline"
+                            onClick={() => startEditEmail(emp)}
+                          >
+                            Change
+                          </button>
+                        )}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {canEditRoleAndBranch ? (
@@ -323,16 +429,130 @@ export function EmployeeManager({
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      className={emp.active ? 'btn-danger' : 'btn-secondary'}
-                      disabled={busyId === emp.id || !canToggleActive}
-                      onClick={() => update(emp.id, { active: !emp.active })}
-                    >
-                      {emp.active ? 'Deactivate' : 'Reactivate'}
-                    </button>
+                    <div className="flex flex-col items-start gap-1.5">
+                      <button
+                        type="button"
+                        className={emp.active ? 'btn-danger' : 'btn-secondary'}
+                        disabled={busyId === emp.id || !canToggleActive}
+                        onClick={() => update(emp.id, { active: !emp.active })}
+                      >
+                        {emp.active ? 'Deactivate' : 'Reactivate'}
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-brand-primary underline"
+                        onClick={() =>
+                          markPresentId === emp.id ? setMarkPresentId(null) : openMarkPresent(emp.id)
+                        }
+                      >
+                        {markPresentId === emp.id ? 'Cancel' : 'Mark present'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
+                {markPresentId === emp.id && (
+                  <tr className="border-b border-line last:border-0">
+                    <td colSpan={5} className="bg-surface-muted px-4 py-4">
+                      <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
+                        Mark {emp.full_name} present
+                      </p>
+                      <p className="mt-1 text-xs text-ink-faint">
+                        Lands directly as approved — for a phone with no
+                        signal, a paper sign-in, or any correction where
+                        nothing was ever submitted.
+                      </p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <div>
+                          <label className="field-label text-xs" htmlFor={`mp-in-${emp.id}`}>
+                            Check in
+                          </label>
+                          <input
+                            id={`mp-in-${emp.id}`}
+                            type="datetime-local"
+                            className="field text-sm"
+                            value={markPresentForm.checkIn}
+                            max={toLocalInputValue(new Date())}
+                            onChange={(e) =>
+                              setMarkPresentForm((f) => ({ ...f, checkIn: e.target.value }))
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="field-label text-xs" htmlFor={`mp-out-${emp.id}`}>
+                            Check out{' '}
+                            <span className="font-normal text-ink-faint">(optional)</span>
+                          </label>
+                          <input
+                            id={`mp-out-${emp.id}`}
+                            type="datetime-local"
+                            className="field text-sm"
+                            value={markPresentForm.checkOut}
+                            min={markPresentForm.checkIn}
+                            max={toLocalInputValue(new Date())}
+                            onChange={(e) =>
+                              setMarkPresentForm((f) => ({ ...f, checkOut: e.target.value }))
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="field-label text-xs" htmlFor={`mp-branch-${emp.id}`}>
+                            Branch{' '}
+                            <span className="font-normal text-ink-faint">(optional)</span>
+                          </label>
+                          <select
+                            id={`mp-branch-${emp.id}`}
+                            className="field text-sm"
+                            value={markPresentForm.branchId}
+                            onChange={(e) =>
+                              setMarkPresentForm((f) => ({ ...f, branchId: e.target.value }))
+                            }
+                          >
+                            <option value="">None</option>
+                            {branches.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="field-label text-xs" htmlFor={`mp-note-${emp.id}`}>
+                            Note{' '}
+                            <span className="font-normal text-ink-faint">(optional)</span>
+                          </label>
+                          <input
+                            id={`mp-note-${emp.id}`}
+                            className="field text-sm"
+                            maxLength={500}
+                            value={markPresentForm.note}
+                            onChange={(e) =>
+                              setMarkPresentForm((f) => ({ ...f, note: e.target.value }))
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      {markPresentError && (
+                        <p
+                          role="alert"
+                          className="mt-3 border-l-4 border-status-flagged bg-status-flagged-bg p-3 text-sm font-medium text-status-flagged"
+                        >
+                          {markPresentError}
+                        </p>
+                      )}
+
+                      <button
+                        type="button"
+                        className="btn-primary mt-4"
+                        disabled={markPresentBusy || !markPresentForm.checkIn}
+                        onClick={() => submitMarkPresent(emp.id)}
+                      >
+                        {markPresentBusy ? 'Saving…' : 'Mark present'}
+                      </button>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>

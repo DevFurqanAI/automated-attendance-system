@@ -14,6 +14,8 @@ function summarise(row: AuditRow): string | null {
       return `${d.from} → ${d.to}`;
     case 'employee.invite':
       return typeof d.email === 'string' ? d.email : null;
+    case 'employee.email_change':
+      return `${d.from} → ${d.to}`;
     case 'branch.qr_rotate':
       return `version ${d.from_version} → ${d.to_version}`;
     case 'branch.create':
@@ -21,11 +23,18 @@ function summarise(row: AuditRow): string | null {
       return typeof d.name === 'string' ? d.name : null;
     case 'attendance.approve':
     case 'attendance.decline':
-      return [d.method === 'remote_request' ? 'remote request' : 'QR check-in',
+      return [
+        d.method === 'remote_request'
+          ? 'remote request'
+          : d.method === 'hr_manual'
+            ? 'HR-marked'
+            : 'QR check-in',
         d.flag_reason ? `flagged: ${d.flag_reason}` : null,
       ]
         .filter(Boolean)
         .join(' · ');
+    case 'attendance.hr_create':
+      return typeof d.check_in_time === 'string' ? formatDateTime(d.check_in_time) : null;
     default:
       return null;
   }

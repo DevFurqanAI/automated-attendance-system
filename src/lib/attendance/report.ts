@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hoursWorked } from '@/lib/format';
-import type { AttendanceRow } from '@/lib/types';
+import { METHOD_LABELS, type AttendanceRow } from '@/lib/types';
 
 /**
  * Attendance reporting (spec §7.6).
@@ -76,7 +76,7 @@ export async function loadReport(
     id: row.id,
     employeeName: row.employees?.full_name ?? 'Unknown',
     employeeEmail: row.employees?.email ?? '',
-    branchName: row.branches?.name ?? (row.method === 'remote_request' ? 'Remote' : '—'),
+    branchName: row.branches?.name ?? (row.method === 'qr_gps' ? '—' : METHOD_LABELS[row.method]),
     // Only carried when the shift closed somewhere else — an ordinary shift
     // would just repeat the branch column for every row.
     checkOutBranchName:
@@ -242,7 +242,7 @@ export function toCsv(entries: ReportEntry[]): string {
         e.employeeEmail,
         e.branchName,
         e.checkOutBranchName ?? '',
-        e.method === 'qr_gps' ? 'QR + GPS' : 'Remote (approved)',
+        METHOD_LABELS[e.method],
         e.checkInTime ?? '',
         e.checkOutTime ?? '',
         e.hours == null ? '' : e.hours.toFixed(2),
