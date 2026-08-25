@@ -22,6 +22,14 @@ function summarise(row: AuditRow): string | null {
       return `${d.from ?? '—'} → ${d.to ?? '—'}`;
     case 'employee.delete':
       return [d.full_name, d.email].filter(Boolean).join(' · ') || null;
+    case 'employee.data_exported': {
+      const counts = d.counts as Record<string, number> | undefined;
+      return counts
+        ? Object.entries(counts)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(' · ')
+        : null;
+    }
     case 'absence.hr_create':
       return typeof d.date === 'string' ? d.date : null;
     case 'leave.hr_mark':

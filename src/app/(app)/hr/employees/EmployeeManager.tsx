@@ -1029,6 +1029,13 @@ export function EmployeeManager({
                       >
                         {markLeaveId === emp.id ? 'Cancel' : 'Mark on leave'}
                       </button>
+                      <a
+                        href={`/api/hr/employees/${emp.id}/export`}
+                        className="text-xs font-semibold text-brand-primary underline"
+                        download
+                      >
+                        Export data
+                      </a>
                       {isSuperAdmin && !isSelf && (
                         <button
                           type="button"
@@ -1168,7 +1175,15 @@ export function EmployeeManager({
                         request, absence, and notification tied to this
                         person is deleted along with their account — only a
                         trace in the audit log survives. If you just need to
-                        block sign-in, use Deactivate instead.
+                        block sign-in, use Deactivate instead.{' '}
+                        <a
+                          href={`/api/hr/employees/${emp.id}/export`}
+                          className="font-semibold underline"
+                          download
+                        >
+                          Export their data first
+                        </a>{' '}
+                        if you need a copy for your records.
                       </p>
                       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
                         <div>
