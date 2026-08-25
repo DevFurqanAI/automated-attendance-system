@@ -142,6 +142,28 @@ export interface LeaveRequestRow extends LeaveRequest {
   employees: Pick<Employee, 'id' | 'full_name' | 'email'> | null;
 }
 
+export type DisputeStatus = 'open' | 'resolved';
+
+export interface Dispute {
+  id: string;
+  attendance_id: string;
+  employee_id: string;
+  reason: string;
+  status: DisputeStatus;
+  resolution_note: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface DisputeRow extends Dispute {
+  employees: Pick<Employee, 'id' | 'full_name' | 'email'> | null;
+  attendance: Pick<
+    Attendance,
+    'id' | 'method' | 'status' | 'check_in_time' | 'check_out_time'
+  > | null;
+}
+
 export interface Absence {
   id: string;
   employee_id: string;

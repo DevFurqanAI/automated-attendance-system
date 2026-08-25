@@ -22,6 +22,8 @@ const STYLE: Record<NotificationRow['kind'], { icon: string; tone: string }> = {
   email_changed: { icon: '★', tone: 'text-brand-primary' },
   marked_absent: { icon: '✕', tone: 'text-status-declined' },
   attendance_corrected: { icon: '★', tone: 'text-brand-primary' },
+  dispute_submitted: { icon: '⚑', tone: 'text-status-flagged' },
+  dispute_resolved: { icon: '✓', tone: 'text-status-approved' },
 };
 
 export default async function NotificationsPage() {

@@ -39,6 +39,8 @@ export const RATE_LIMITS = {
   /** At most one open shift at a time, so there is only ever one of these to
    *  file; the headroom is for correcting a typo'd time, not scripted abuse. */
   remoteCheckout: { name: 'remote-checkout', limit: 10, windowSeconds: 3600 },
+  /** Filed by hand, about a record someone actually disagrees with. */
+  dispute: { name: 'dispute', limit: 10, windowSeconds: 3600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**

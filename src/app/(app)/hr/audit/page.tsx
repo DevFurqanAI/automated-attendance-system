@@ -45,6 +45,8 @@ function summarise(row: AuditRow): string | null {
       return typeof d.check_in_time === 'string' ? formatDateTime(d.check_in_time) : null;
     case 'attendance.hr_edit':
       return typeof d.reason === 'string' ? d.reason : null;
+    case 'dispute.resolved':
+      return typeof d.resolution_note === 'string' ? d.resolution_note : null;
     default:
       return null;
   }

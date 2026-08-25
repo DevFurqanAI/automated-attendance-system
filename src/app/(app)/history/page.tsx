@@ -14,6 +14,7 @@ import {
   type AttendanceRow,
   type LeaveRequest,
 } from '@/lib/types';
+import { DisputeButton } from './DisputeButton';
 
 export const metadata: Metadata = { title: 'My history' };
 
@@ -26,29 +27,38 @@ export default async function HistoryPage() {
   const user = (await getSessionUser())!;
   const supabase = await createClient();
 
-  const [{ data }, { data: leaveRows }, { data: absenceRows }] = await Promise.all([
-    supabase
-      .from('attendance')
-      .select('*, branches:branch_id ( id, name ), employees:employee_id ( id, full_name, email )')
-      .eq('employee_id', user.id)
-      .order('submitted_at', { ascending: false })
-      .limit(100)
-      .returns<AttendanceRow[]>(),
-    supabase
-      .from('leave_requests')
-      .select('*')
-      .eq('employee_id', user.id)
-      .order('from_date', { ascending: false })
-      .limit(100)
-      .returns<LeaveRequest[]>(),
-    supabase
-      .from('absences')
-      .select('*')
-      .eq('employee_id', user.id)
-      .order('date', { ascending: false })
-      .limit(100)
-      .returns<Absence[]>(),
-  ]);
+  const [{ data }, { data: leaveRows }, { data: absenceRows }, { data: openDisputes }] =
+    await Promise.all([
+      supabase
+        .from('attendance')
+        .select('*, branches:branch_id ( id, name ), employees:employee_id ( id, full_name, email )')
+        .eq('employee_id', user.id)
+        .order('submitted_at', { ascending: false })
+        .limit(100)
+        .returns<AttendanceRow[]>(),
+      supabase
+        .from('leave_requests')
+        .select('*')
+        .eq('employee_id', user.id)
+        .order('from_date', { ascending: false })
+        .limit(100)
+        .returns<LeaveRequest[]>(),
+      supabase
+        .from('absences')
+        .select('*')
+        .eq('employee_id', user.id)
+        .order('date', { ascending: false })
+        .limit(100)
+        .returns<Absence[]>(),
+      supabase
+        .from('disputes')
+        .select('attendance_id')
+        .eq('employee_id', user.id)
+        .eq('status', 'open')
+        .returns<{ attendance_id: string }[]>(),
+    ]);
+
+  const disputedIds = new Set((openDisputes ?? []).map((d) => d.attendance_id));
 
   const rows = data ?? [];
 
@@ -111,6 +121,7 @@ export default async function HistoryPage() {
                 <Th>Hours</Th>
                 <Th>Method</Th>
                 <Th>Status</Th>
+                <Th>&nbsp;</Th>
               </tr>
             </thead>
             <tbody>
@@ -130,6 +141,7 @@ export default async function HistoryPage() {
                       <Td>
                         <StatusBadge status={leave.status} />
                       </Td>
+                      <Td>—</Td>
                     </tr>
                   );
                 }
@@ -146,6 +158,7 @@ export default async function HistoryPage() {
                           Absent
                         </span>
                       </Td>
+                      <Td>—</Td>
                     </tr>
                   );
                 }
@@ -176,7 +189,7 @@ export default async function HistoryPage() {
                         hoursWorked(row.check_in_time, row.check_out_time),
                       )}
                     </Td>
-                    <Td>{remote ? 'Remote' : 'QR + GPS'}</Td>
+                    <Td>{METHOD_LABELS[row.method]}</Td>
                     <Td>
                       <StatusBadge status={row.status} />
                       {row.flag_reason && (
@@ -184,6 +197,12 @@ export default async function HistoryPage() {
                           {FLAG_REASON_LABELS[row.flag_reason]}
                         </span>
                       )}
+                    </Td>
+                    <Td>
+                      <DisputeButton
+                        attendanceId={row.id}
+                        hasOpenDispute={disputedIds.has(row.id)}
+                      />
                     </Td>
                   </tr>
                 );

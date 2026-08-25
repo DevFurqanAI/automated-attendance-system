@@ -6,33 +6,38 @@ import { formatDate, formatDateTime, toLocalInputValue } from '@/lib/format';
 import { createClient } from '@/lib/supabase/client';
 import {
   FLAG_REASON_LABELS,
+  METHOD_LABELS,
   type AttendanceRow,
   type Branch,
+  type DisputeRow,
   type LeaveRequestRow,
 } from '@/lib/types';
 
-type Tab = 'all' | 'pending' | 'flagged' | 'leave';
+type Tab = 'all' | 'pending' | 'flagged' | 'leave' | 'disputes';
 
 /**
  * The single HR review surface (spec §7.5): pending remote requests, flagged
- * QR check-ins, and pending leave requests in one place, updating live via
- * Supabase Realtime so a second reviewer's decision appears without a
- * refresh.
+ * QR check-ins, pending leave requests, and open attendance disputes in one
+ * place, updating live via Supabase Realtime so a second reviewer's decision
+ * appears without a refresh.
  */
 export function ReviewDashboard({
   initialRecords,
   initialLeaveRequests,
+  initialDisputes,
   branches,
   currentUserId,
 }: {
   initialRecords: AttendanceRow[];
   initialLeaveRequests: LeaveRequestRow[];
+  initialDisputes: DisputeRow[];
   branches: Branch[];
   /** The signed-in reviewer, so their own records can be called out. */
   currentUserId: string;
 }) {
   const [records, setRecords] = useState(initialRecords);
   const [leaveRequests, setLeaveRequests] = useState(initialLeaveRequests);
+  const [disputes, setDisputes] = useState(initialDisputes);
   const [tab, setTab] = useState<Tab>('all');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +74,19 @@ export function ReviewDashboard({
     if (data) setLeaveRequests(data);
   }, [supabase]);
 
+  const refreshDisputes = useCallback(async () => {
+    const { data } = await supabase
+      .from('disputes')
+      .select(
+        '*, employees:employee_id ( id, full_name, email ), attendance:attendance_id ( id, method, status, check_in_time, check_out_time )',
+      )
+      .eq('status', 'open')
+      .order('created_at', { ascending: false })
+      .returns<DisputeRow[]>();
+
+    if (data) setDisputes(data);
+  }, [supabase]);
+
   useEffect(() => {
     const channel = supabase
       .channel('hr-review-queue')
@@ -86,6 +104,13 @@ export function ReviewDashboard({
           refreshLeave();
         },
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'disputes' },
+        () => {
+          refreshDisputes();
+        },
+      )
       .subscribe((status) => {
         setLive(status === 'SUBSCRIBED');
       });
@@ -93,7 +118,7 @@ export function ReviewDashboard({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [supabase, refresh, refreshLeave]);
+  }, [supabase, refresh, refreshLeave, refreshDisputes]);
 
   async function review(
     id: string,
@@ -167,6 +192,27 @@ export function ReviewDashboard({
     }
 
     setLeaveRequests((rows) => rows.filter((r) => r.id !== id));
+    setBusyId(null);
+  }
+
+  async function resolveDispute(id: string, resolutionNote: string) {
+    setBusyId(id);
+    setError(null);
+
+    const response = await fetch('/api/hr/disputes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, resolutionNote }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      setError(data.error ?? 'Could not resolve the dispute.');
+      setBusyId(null);
+      return;
+    }
+
+    setDisputes((rows) => rows.filter((r) => r.id !== id));
     setBusyId(null);
   }
 
@@ -254,6 +300,9 @@ export function ReviewDashboard({
         <TabButton active={tab === 'leave'} onClick={() => setTab('leave')}>
           Leave ({leaveRequests.length})
         </TabButton>
+        <TabButton active={tab === 'disputes'} onClick={() => setTab('disputes')}>
+          Disputes ({disputes.length})
+        </TabButton>
       </div>
 
       {error && (
@@ -265,7 +314,24 @@ export function ReviewDashboard({
         </p>
       )}
 
-      {tab === 'leave' ? (
+      {tab === 'disputes' ? (
+        disputes.length === 0 ? (
+          <p className="card mt-5 p-10 text-center text-ink-muted">
+            No open disputes.
+          </p>
+        ) : (
+          <ul className="mt-5 space-y-3">
+            {disputes.map((row) => (
+              <DisputeCard
+                key={row.id}
+                row={row}
+                busy={busyId === row.id}
+                onResolve={resolveDispute}
+              />
+            ))}
+          </ul>
+        )
+      ) : tab === 'leave' ? (
         leaveRequests.length === 0 ? (
           <p className="card mt-5 p-10 text-center text-ink-muted">
             Nothing to review. New requests appear here automatically.
@@ -329,6 +395,80 @@ export function ReviewDashboard({
         </>
       )}
     </div>
+  );
+}
+
+function DisputeCard({
+  row,
+  busy,
+  onResolve,
+}: {
+  row: DisputeRow;
+  busy: boolean;
+  onResolve: (id: string, resolutionNote: string) => void;
+}) {
+  const [note, setNote] = useState('');
+  const record = row.attendance;
+
+  return (
+    <li className="card p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-bold text-brand-secondary">
+            {row.employees?.full_name ?? 'Unknown employee'}
+          </p>
+          <p className="text-sm text-ink-muted">{row.employees?.email}</p>
+        </div>
+        <span className="badge bg-status-flagged-bg text-status-flagged">Open dispute</span>
+      </div>
+
+      <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+        <Field label="Filed">{formatDateTime(row.created_at)}</Field>
+        <Field label="Record">
+          {record ? (
+            <>
+              {METHOD_LABELS[record.method]} — {record.status}
+              <span className="mt-0.5 block text-xs text-ink-faint">
+                {formatDateTime(record.check_in_time)} → {formatDateTime(record.check_out_time)}
+              </span>
+            </>
+          ) : (
+            '—'
+          )}
+        </Field>
+        <Field label="Employee's reason" className="sm:col-span-2">
+          {row.reason}
+        </Field>
+      </dl>
+
+      <p className="mt-4 text-xs text-ink-faint">
+        Resolving does not change the record itself — correct it from the
+        Reports page&apos;s Edit action first if the dispute is warranted,
+        then resolve here.
+      </p>
+
+      <div className="mt-3">
+        <label className="field-label text-xs" htmlFor={`resolve-${row.id}`}>
+          Resolution note <span className="font-normal text-ink-faint">(optional)</span>
+        </label>
+        <input
+          id={`resolve-${row.id}`}
+          className="field text-sm"
+          maxLength={500}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+      </div>
+
+      <button
+        type="button"
+        className="btn-primary mt-4"
+        disabled={busy}
+        onClick={() => onResolve(row.id, note)}
+      >
+        {busy ? 'Saving…' : 'Resolve'}
+      </button>
+    </li>
   );
 }
 

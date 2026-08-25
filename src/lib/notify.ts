@@ -29,7 +29,9 @@ export type NotificationKind =
   | 'account_deactivated'
   | 'email_changed'
   | 'marked_absent'
-  | 'attendance_corrected';
+  | 'attendance_corrected'
+  | 'dispute_submitted'
+  | 'dispute_resolved';
 
 export interface NotificationInput {
   recipientId: string;
