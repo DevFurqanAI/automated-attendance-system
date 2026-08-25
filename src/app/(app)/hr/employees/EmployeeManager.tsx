@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import type { Branch, Employee, Role } from '@/lib/types';
+import { WEEKDAY_LABELS, type Branch, type Employee, type Role } from '@/lib/types';
 
 export function EmployeeManager({
   employees,
@@ -101,6 +101,14 @@ export function EmployeeManager({
     router.refresh();
   }
 
+  function toggleWeeklyOffDay(emp: Employee, day: number) {
+    const current = emp.weekly_off_days ?? [];
+    const next = current.includes(day)
+      ? current.filter((d) => d !== day)
+      : [...current, day].sort((a, b) => a - b);
+    update(emp.id, { weeklyOffDays: next });
+  }
+
   function toggleBranchSelection(hrAdminId: string, branchId: string) {
     setBranchSelections((prev) => {
       const current = prev[hrAdminId] ?? [];
@@ -194,6 +202,7 @@ export function EmployeeManager({
               <Th>Name</Th>
               <Th>Role</Th>
               <Th>Default branch</Th>
+              <Th>Weekly off days</Th>
               <Th>Status</Th>
             </tr>
           </thead>
@@ -277,6 +286,40 @@ export function EmployeeManager({
                       <span className="text-ink-muted">
                         {branches.find((b) => b.id === emp.default_branch_id)?.name ?? 'None'}
                       </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-1">
+                      {WEEKDAY_LABELS.map((label, day) => (
+                        <button
+                          key={day}
+                          type="button"
+                          aria-label={`Toggle ${label} off for ${emp.full_name}`}
+                          disabled={busyId === emp.id}
+                          className={`px-1.5 py-0.5 text-[10px] font-semibold ${
+                            (emp.weekly_off_days ?? []).includes(day)
+                              ? 'bg-brand-primary-soft text-brand-primary'
+                              : 'bg-surface-muted text-ink-muted'
+                          }`}
+                          onClick={() => toggleWeeklyOffDay(emp, day)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {emp.weekly_off_days == null ? (
+                      <span className="mt-1 block text-xs text-ink-faint">
+                        Inherited from branch
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="mt-1 text-xs text-ink-faint underline"
+                        disabled={busyId === emp.id}
+                        onClick={() => update(emp.id, { weeklyOffDays: null })}
+                      >
+                        Reset to branch default
+                      </button>
                     )}
                   </td>
                   <td className="px-4 py-3">

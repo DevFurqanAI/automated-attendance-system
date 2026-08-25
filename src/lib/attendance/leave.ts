@@ -14,6 +14,9 @@ export type LeaveRangeValidation =
   | { ok: true; fromDate: string; toDate: string }
   | { ok: false; error: string };
 
+/** Sanity cap on a single request's span — a data-quality guard, not a policy limit. */
+export const LEAVE_MAX_SPAN_DAYS = 90;
+
 /** "Today" in Asia/Karachi as YYYY-MM-DD, independent of the caller's own zone. */
 export function todayInTz(now: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(now);
@@ -38,6 +41,17 @@ export function validateLeaveRange(
   }
   if (toDate < fromDate) {
     return { ok: false, error: 'The end date cannot be before the start date.' };
+  }
+
+  const spanDays =
+    (Date.parse(`${toDate}T00:00:00Z`) - Date.parse(`${fromDate}T00:00:00Z`)) /
+      86_400_000 +
+    1;
+  if (spanDays > LEAVE_MAX_SPAN_DAYS) {
+    return {
+      ok: false,
+      error: `A single leave request cannot span more than ${LEAVE_MAX_SPAN_DAYS} days.`,
+    };
   }
 
   return { ok: true, fromDate, toDate };

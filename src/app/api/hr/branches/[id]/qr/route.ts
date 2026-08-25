@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import QRCode from 'qrcode';
+import { isBranchManagedBy } from '@/lib/hr-scope';
 import { createBranchToken } from '@/lib/qr-token';
 import { createAdminClient, getHrUser } from '@/lib/supabase/server';
 import type { BranchWithSecret } from '@/lib/types';
@@ -12,6 +13,12 @@ import type { BranchWithSecret } from '@/lib/types';
  * fetchable by staff (who could otherwise photograph a branch code they are
  * not standing in front of). The GPS geofence would still catch the resulting
  * check-in, but there is no reason to hand out the first factor.
+ *
+ * Also scoped like every other branch-write route (see src/lib/hr-scope.ts):
+ * this reads through the service role, which bypasses the RLS policy that
+ * would otherwise confine a non-super_admin hr_admin to their assigned
+ * branches — without the check below they could mint a valid, printable QR
+ * for a branch never assigned to them.
  */
 export async function GET(
   request: Request,
@@ -29,6 +36,14 @@ export async function GET(
   const format = new URL(request.url).searchParams.get('format') ?? 'png';
 
   const admin = createAdminClient();
+
+  if (!(await isBranchManagedBy(admin, hr, id))) {
+    return NextResponse.json(
+      { error: 'This branch is not assigned to you.' },
+      { status: 403 },
+    );
+  }
+
   const { data: branch } = await admin
     .from('branches')
     .select('*')

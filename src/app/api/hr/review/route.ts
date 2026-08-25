@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { recordAudit } from '@/lib/audit';
+import { isEmployeeVisibleTo } from '@/lib/hr-scope';
 import { notify } from '@/lib/notify';
-import { createAdminClient, getHrUser } from '@/lib/supabase/server';
-import { FLAG_REASON_LABELS, type Attendance } from '@/lib/types';
+import { createAdminClient, getHrUser, type SessionUser } from '@/lib/supabase/server';
+import { FLAG_REASON_LABELS, type Attendance, type Employee } from '@/lib/types';
 
 /**
  * POST /api/hr/review — spec §7.4.7 and §7.5
@@ -42,9 +44,9 @@ export async function POST(request: Request) {
   if (!id) {
     return NextResponse.json({ error: 'Missing record id.' }, { status: 400 });
   }
-  if (action !== 'approve' && action !== 'decline') {
+  if (action !== 'approve' && action !== 'decline' && action !== 'force_checkout') {
     return NextResponse.json(
-      { error: 'Action must be "approve" or "decline".' },
+      { error: 'Action must be "approve", "decline", or "force_checkout".' },
       { status: 400 },
     );
   }
@@ -59,6 +61,29 @@ export async function POST(request: Request) {
 
   if (!record) {
     return NextResponse.json({ error: 'Record not found.' }, { status: 404 });
+  }
+
+  // Reads through the service role, which bypasses the RLS policy that would
+  // otherwise scope a non-super_admin hr_admin to their assigned branches (see
+  // src/lib/hr-scope.ts) — this must be re-checked in code, same as every
+  // other HR route that writes through the admin client.
+  if (hr.employee.role !== 'super_admin') {
+    const { data: target } = await admin
+      .from('employees')
+      .select('default_branch_id')
+      .eq('id', record.employee_id)
+      .single<Pick<Employee, 'default_branch_id'>>();
+
+    if (!target || !(await isEmployeeVisibleTo(admin, hr, target))) {
+      return NextResponse.json(
+        { error: 'This employee is not in one of your assigned branches.' },
+        { status: 403 },
+      );
+    }
+  }
+
+  if (action === 'force_checkout') {
+    return handleForceCheckout(admin, hr, record, body.checkOutTime);
   }
 
   // Only the two review queues are actionable. Re-reviewing a settled record
@@ -244,6 +269,98 @@ export async function POST(request: Request) {
   ]);
 
   return NextResponse.json({ id, status: 'approved', selfReview });
+}
+
+/**
+ * Closes a shift that has no check-out at all — a lost phone, a crashed app,
+ * or simply forgetting — with an HR-supplied time. There is otherwise no
+ * recovery path: the record cannot be reviewed while check_out_time is null
+ * (see the guard above this function's call site), and the employee cannot
+ * check in anywhere else until it is closed (the partial unique index in the
+ * init migration).
+ *
+ * Always lands as `flagged`/`force_closed`, never a silent approval — the
+ * time was supplied by HR, not scanned or geofence-verified, so a human still
+ * decides what the shift was worth via the normal approve/decline path
+ * afterward.
+ */
+async function handleForceCheckout(
+  admin: SupabaseClient,
+  hr: SessionUser,
+  record: Attendance,
+  rawCheckOutTime: unknown,
+): Promise<NextResponse> {
+  if (record.method !== 'qr_gps' || record.check_out_time) {
+    return NextResponse.json(
+      { error: 'Only an open QR check-in can be force-closed.' },
+      { status: 409 },
+    );
+  }
+  if (record.status !== 'approved' && record.status !== 'flagged') {
+    return NextResponse.json(
+      { error: `This record has already been ${record.status}.` },
+      { status: 409 },
+    );
+  }
+
+  const checkOutTime = parseDate(rawCheckOutTime) ?? new Date();
+  const checkInTime = toDate(record.check_in_time);
+
+  if (checkInTime && checkOutTime < checkInTime) {
+    return NextResponse.json(
+      { error: 'Check-out cannot be before check-in.' },
+      { status: 400 },
+    );
+  }
+  if (checkOutTime.getTime() > Date.now() + 5 * 60 * 1000) {
+    return NextResponse.json(
+      { error: 'Check-out cannot be in the future.' },
+      { status: 400 },
+    );
+  }
+
+  const { error } = await admin
+    .from('attendance')
+    .update({
+      check_out_time: checkOutTime.toISOString(),
+      status: 'flagged',
+      flag_reason: 'force_closed',
+    })
+    .eq('id', record.id);
+
+  if (error) {
+    return NextResponse.json(
+      { error: 'Could not close the shift.' },
+      { status: 500 },
+    );
+  }
+
+  await recordAudit(admin, hr, {
+    action: 'attendance.force_checkout',
+    entityType: 'attendance',
+    entityId: record.id,
+    subjectId: record.employee_id,
+    detail: {
+      previous_status: record.status,
+      check_in_time: record.check_in_time,
+      check_out_time: checkOutTime.toISOString(),
+    },
+  });
+
+  await notify(admin, [
+    {
+      recipientId: record.employee_id,
+      kind: 'attendance_flagged',
+      title: 'Your open shift was closed by HR',
+      body:
+        `Reviewed by ${hr.employee.full_name}. It has been sent back to HR for ` +
+        'review and does not count until approved.',
+      entityType: 'attendance',
+      entityId: record.id,
+    },
+  ]);
+
+  return NextResponse.json({ id: record.id, status: 'flagged', forceClosed: true });
 }
 
 /** "Your remote request" / "Your flagged check-in", for a notification title. */

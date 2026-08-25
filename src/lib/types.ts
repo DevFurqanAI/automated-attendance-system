@@ -8,7 +8,8 @@ export type FlagReason =
   | 'impossible_travel'
   | 'coordinate_jitter'
   | 'out_of_range'
-  | 'branch_mismatch';
+  | 'branch_mismatch'
+  | 'force_closed';
 
 export interface Branch {
   id: string;
@@ -79,6 +80,7 @@ export const FLAG_REASON_LABELS: Record<FlagReason, string> = {
   coordinate_jitter: 'Suspicious coordinate repetition',
   out_of_range: 'Outside branch geofence',
   branch_mismatch: 'Checked out at a different branch',
+  force_closed: 'Closed by HR (no check-out scan)',
 };
 
 export const REMOTE_REASONS = [

@@ -178,6 +178,24 @@ export async function PATCH(request: Request) {
         : null;
   }
 
+  // Personal weekly-off override — see private.is_working_day() in
+  // 20260824101000_schedule_holidays.sql. `null` clears the override, falling
+  // back to the employee's branch (or Sunday, if they have none — see
+  // 20260825092000_is_working_day_branchless_default.sql).
+  if (body.weeklyOffDays !== undefined) {
+    if (
+      body.weeklyOffDays !== null &&
+      (!Array.isArray(body.weeklyOffDays) ||
+        !body.weeklyOffDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6))
+    ) {
+      return NextResponse.json(
+        { error: 'weeklyOffDays must be an array of integers between 0 and 6, or null.' },
+        { status: 400 },
+      );
+    }
+    update.weekly_off_days = body.weeklyOffDays;
+  }
+
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: 'Nothing to update.' }, { status: 400 });
   }
@@ -253,6 +271,19 @@ export async function PATCH(request: Request) {
       entityId: id,
       subjectId: id,
       detail: { from: target.default_branch_id, to: update.default_branch_id },
+    });
+  }
+
+  if (
+    update.weekly_off_days !== undefined &&
+    JSON.stringify(update.weekly_off_days) !== JSON.stringify(target.weekly_off_days)
+  ) {
+    await recordAudit(admin, hr, {
+      action: 'employee.weekly_off_days_change',
+      entityType: 'employee',
+      entityId: id,
+      subjectId: id,
+      detail: { from: target.weekly_off_days, to: update.weekly_off_days },
     });
   }
 

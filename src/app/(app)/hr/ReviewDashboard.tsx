@@ -121,6 +121,34 @@ export function ReviewDashboard({
     setBusyId(null);
   }
 
+  /**
+   * Closes a shift stuck with no check-out at all — no scan ever came in, so
+   * it cannot go through the normal approve/decline flow (see the guard in
+   * src/app/api/hr/review/route.ts). The realtime subscription above picks up
+   * the resulting `flagged` row, so no optimistic removal here.
+   */
+  async function forceCheckout(id: string, checkOutTime: string) {
+    setBusyId(id);
+    setError(null);
+
+    const response = await fetch('/api/hr/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id,
+        action: 'force_checkout',
+        checkOutTime: new Date(checkOutTime).toISOString(),
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      setError(data.error ?? 'Could not close the shift.');
+    }
+
+    setBusyId(null);
+  }
+
   async function reviewLeave(id: string, action: 'approve' | 'decline') {
     setBusyId(id);
     setError(null);
@@ -225,6 +253,7 @@ export function ReviewDashboard({
               isOwnRecord={row.employee_id === currentUserId}
               busy={busyId === row.id}
               onReview={review}
+              onForceCheckout={forceCheckout}
             />
           ))}
         </ul>
@@ -302,6 +331,7 @@ function ReviewCard({
   isOwnRecord,
   busy,
   onReview,
+  onForceCheckout,
 }: {
   row: AttendanceRow;
   branches: Branch[];
@@ -312,8 +342,16 @@ function ReviewCard({
     action: 'approve' | 'decline',
     overrides?: { checkInTime?: string; checkOutTime?: string | null; branchId?: string | null },
   ) => void;
+  onForceCheckout: (id: string, checkOutTime: string) => void;
 }) {
   const remote = row.method === 'remote_request';
+  // A QR shift with no check-out at all: no scan ever came in, so it cannot
+  // go through the normal approve/decline flow. Lost phone, crashed app, or
+  // simply forgetting — see 'attendance.force_checkout' in src/lib/audit.ts.
+  const stuckOpen = !remote && !row.check_out_time;
+  const [forceCheckoutTime, setForceCheckoutTime] = useState(
+    toLocalInputValue(new Date()),
+  );
 
   // HR may correct a claim before approving it (spec §7.4.7).
   const [checkIn, setCheckIn] = useState(
@@ -476,24 +514,58 @@ function ReviewCard({
         </div>
       )}
 
-      <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-        <button
-          type="button"
-          className="btn-primary sm:w-40"
-          disabled={busy}
-          onClick={approve}
-        >
-          {busy ? 'Saving…' : 'Approve'}
-        </button>
-        <button
-          type="button"
-          className="btn-danger sm:w-40"
-          disabled={busy}
-          onClick={() => onReview(row.id, 'decline')}
-        >
-          Decline
-        </button>
-      </div>
+      {stuckOpen ? (
+        <div className="mt-5 border-t border-line pt-4">
+          <p className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-muted">
+            No check-out was ever scanned — close this shift with a time you supply
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div>
+              <label className="field-label text-xs" htmlFor={`force-out-${row.id}`}>
+                Check-out time
+              </label>
+              <input
+                id={`force-out-${row.id}`}
+                type="datetime-local"
+                className="field text-sm"
+                value={forceCheckoutTime}
+                onChange={(e) => setForceCheckoutTime(e.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              className="btn-danger sm:w-48"
+              disabled={busy || !forceCheckoutTime}
+              onClick={() => onForceCheckout(row.id, forceCheckoutTime)}
+            >
+              {busy ? 'Saving…' : 'Force checkout'}
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-ink-faint">
+            This does not approve the shift — it only supplies the missing
+            check-out so it can be reviewed normally afterward.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            className="btn-primary sm:w-40"
+            disabled={busy}
+            onClick={approve}
+          >
+            {busy ? 'Saving…' : 'Approve'}
+          </button>
+          <button
+            type="button"
+            className="btn-danger sm:w-40"
+            disabled={busy}
+            onClick={() => onReview(row.id, 'decline')}
+          >
+            Decline
+          </button>
+        </div>
+      )}
     </li>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateLeaveRange } from '@/lib/attendance/leave';
+import { LEAVE_MAX_SPAN_DAYS, validateLeaveRange } from '@/lib/attendance/leave';
 
 // 2026-08-24T10:00:00Z is 2026-08-24 15:00 in Asia/Karachi (UTC+5).
 const NOW = new Date('2026-08-24T10:00:00.000Z');
@@ -30,5 +30,20 @@ describe('validateLeaveRange', () => {
 
   it('accepts a single-day request', () => {
     expect(validateLeaveRange('2026-08-24', '2026-08-24', NOW).ok).toBe(true);
+  });
+
+  it(`accepts a request exactly ${LEAVE_MAX_SPAN_DAYS} days long`, () => {
+    const to = new Date('2026-08-24T00:00:00Z');
+    to.setUTCDate(to.getUTCDate() + LEAVE_MAX_SPAN_DAYS - 1);
+    const toDate = to.toISOString().slice(0, 10);
+    expect(validateLeaveRange('2026-08-24', toDate, NOW).ok).toBe(true);
+  });
+
+  it(`rejects a request longer than ${LEAVE_MAX_SPAN_DAYS} days`, () => {
+    const to = new Date('2026-08-24T00:00:00Z');
+    to.setUTCDate(to.getUTCDate() + LEAVE_MAX_SPAN_DAYS);
+    const toDate = to.toISOString().slice(0, 10);
+    const result = validateLeaveRange('2026-08-24', toDate, NOW);
+    expect(result.ok).toBe(false);
   });
 });
