@@ -232,9 +232,134 @@ export function BranchManager({
         </ul>
       )}
 
+      {canCreate && (
+        <CompanyCalendar days={calendarDays.filter((d) => d.branch_id === null)} />
+      )}
+
       {printing && (
         <QrDialog branch={printing} onClose={() => setPrinting(null)} />
       )}
+    </div>
+  );
+}
+
+/**
+ * Company-wide holidays/mandatory workdays — apply to every branch (and
+ * every branch-less employee), unless a branch declares its own entry for
+ * the same date. Super-admin only (see POST /api/hr/calendar).
+ */
+function CompanyCalendar({ days }: { days: BranchCalendarDay[] }) {
+  const router = useRouter();
+  const [form, setForm] = useState({ date: '', kind: 'holiday' as CalendarDayKind, label: '' });
+  const [saving, setSaving] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.date) return;
+    setSaving(true);
+    setError(null);
+
+    const response = await fetch('/api/hr/calendar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        date: form.date,
+        kind: form.kind,
+        label: form.label || undefined,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      setError(data.error ?? 'Could not save the calendar day.');
+    } else {
+      setForm({ date: '', kind: 'holiday', label: '' });
+    }
+
+    setSaving(false);
+    router.refresh();
+  }
+
+  async function remove(id: string) {
+    setRemovingId(id);
+    const response = await fetch(`/api/hr/calendar?calendarId=${id}`, { method: 'DELETE' });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      setError(data.error ?? 'Could not remove the calendar day.');
+    }
+    setRemovingId(null);
+    router.refresh();
+  }
+
+  return (
+    <div className="card mt-5 p-5">
+      <h2 className="text-sm font-bold uppercase tracking-wide text-ink-muted">
+        Company-wide holidays
+      </h2>
+      <p className="mt-1.5 text-sm text-ink-muted">
+        Applies to every branch, and every branch-less employee — unless a
+        branch declares its own entry for the same date.
+      </p>
+
+      {error && (
+        <p role="alert" className="mt-3 text-sm font-medium text-status-flagged">
+          {error}
+        </p>
+      )}
+
+      {days.length > 0 && (
+        <ul className="mt-3 space-y-1">
+          {days.map((day) => (
+            <li
+              key={day.id}
+              className="flex items-center justify-between gap-2 text-sm text-ink-muted"
+            >
+              <span>
+                {day.date} — {CALENDAR_DAY_KIND_LABELS[day.kind]}
+                {day.label ? ` (${day.label})` : ''}
+              </span>
+              <button
+                type="button"
+                className="text-xs font-semibold text-status-flagged"
+                disabled={removingId === day.id}
+                onClick={() => remove(day.id)}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form onSubmit={add} className="mt-3 flex flex-wrap items-end gap-2">
+        <input
+          type="date"
+          className="field text-sm"
+          value={form.date}
+          onChange={(e) => setForm({ ...form, date: e.target.value })}
+          required
+        />
+        <select
+          className="field text-sm"
+          value={form.kind}
+          onChange={(e) => setForm({ ...form, kind: e.target.value as CalendarDayKind })}
+        >
+          <option value="holiday">Holiday</option>
+          <option value="mandatory_workday">Mandatory workday</option>
+        </select>
+        <input
+          type="text"
+          className="field text-sm"
+          placeholder="Label (optional)"
+          value={form.label}
+          onChange={(e) => setForm({ ...form, label: e.target.value })}
+        />
+        <button type="submit" className="btn-secondary" disabled={saving}>
+          {saving ? 'Adding…' : 'Add'}
+        </button>
+      </form>
     </div>
   );
 }

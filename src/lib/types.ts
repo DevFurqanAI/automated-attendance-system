@@ -114,7 +114,8 @@ export type CalendarDayKind = 'holiday' | 'mandatory_workday';
 
 export interface BranchCalendarDay {
   id: string;
-  branch_id: string;
+  /** Null means company-wide — every branch, and every branch-less employee. */
+  branch_id: string | null;
   date: string;
   kind: CalendarDayKind;
   label: string | null;
