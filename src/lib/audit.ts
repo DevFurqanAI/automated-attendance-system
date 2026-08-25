@@ -26,6 +26,7 @@ export type AuditAction =
   | 'employee.deactivate'
   | 'employee.branch_change'
   | 'employee.weekly_off_days_change'
+  | 'employee.leave_balance_change'
   | 'employee.email_change'
   | 'employee.delete'
   | 'branch.create'
@@ -91,6 +92,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   'employee.deactivate': 'Deactivated employee',
   'employee.branch_change': 'Changed default branch',
   'employee.weekly_off_days_change': 'Changed weekly off days',
+  'employee.leave_balance_change': 'Changed leave balance',
   'employee.email_change': 'Changed work email',
   'employee.delete': 'Deleted employee',
   'branch.create': 'Created branch',

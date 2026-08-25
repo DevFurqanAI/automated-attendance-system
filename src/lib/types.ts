@@ -45,6 +45,8 @@ export interface Employee {
   weekly_off_days: number[] | null;
   active: boolean;
   created_at: string;
+  /** Annual leave allotment, in days. Informational — see daysInRangeWithinYear(). */
+  leave_balance_days: number;
 }
 
 export interface Attendance {

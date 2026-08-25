@@ -16,6 +16,8 @@ function summarise(row: AuditRow): string | null {
       return typeof d.email === 'string' ? d.email : null;
     case 'employee.email_change':
       return `${d.from} → ${d.to}`;
+    case 'employee.leave_balance_change':
+      return `${d.from} → ${d.to} days`;
     case 'employee.delete':
       return [d.full_name, d.email].filter(Boolean).join(' · ') || null;
     case 'absence.hr_create':

@@ -774,13 +774,14 @@ export function EmployeeManager({
               <Th>Role</Th>
               <Th>Default branch</Th>
               <Th>Weekly off days</Th>
+              <Th>Leave balance</Th>
               <Th>Status</Th>
             </tr>
           </thead>
           <tbody>
             {visibleEmployees.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-ink-muted">
+                <td colSpan={7} className="px-4 py-8 text-center text-ink-muted">
                   No employees match this filter.
                 </td>
               </tr>
@@ -952,6 +953,24 @@ export function EmployeeManager({
                     )}
                   </td>
                   <td className="px-4 py-3">
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      aria-label={`Leave balance for ${emp.full_name}`}
+                      className="field w-20 text-sm"
+                      defaultValue={emp.leave_balance_days}
+                      disabled={busyId === emp.id}
+                      onBlur={(e) => {
+                        const value = Number(e.target.value);
+                        if (Number.isFinite(value) && value !== emp.leave_balance_days) {
+                          update(emp.id, { leaveBalanceDays: value });
+                        }
+                      }}
+                    />
+                    <span className="mt-1 block text-xs text-ink-faint">days / year</span>
+                  </td>
+                  <td className="px-4 py-3">
                     <div className="flex flex-col items-start gap-1.5">
                       <button
                         type="button"
@@ -1004,7 +1023,7 @@ export function EmployeeManager({
                 </tr>
                 {markAbsentId === emp.id && (
                   <tr className="border-b border-line last:border-0">
-                    <td colSpan={6} className="bg-surface-muted px-4 py-4">
+                    <td colSpan={7} className="bg-surface-muted px-4 py-4">
                       <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
                         Mark {emp.full_name} absent
                       </p>
@@ -1041,7 +1060,7 @@ export function EmployeeManager({
                 )}
                 {markLeaveId === emp.id && (
                   <tr className="border-b border-line last:border-0">
-                    <td colSpan={6} className="bg-surface-muted px-4 py-4">
+                    <td colSpan={7} className="bg-surface-muted px-4 py-4">
                       <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
                         Record leave for {emp.full_name}
                       </p>
@@ -1118,7 +1137,7 @@ export function EmployeeManager({
                 )}
                 {deletingId === emp.id && (
                   <tr className="border-b border-line last:border-0">
-                    <td colSpan={6} className="bg-status-flagged-bg px-4 py-4">
+                    <td colSpan={7} className="bg-status-flagged-bg px-4 py-4">
                       <p className="text-sm font-bold text-status-flagged">
                         Permanently delete {emp.full_name}?
                       </p>
@@ -1164,7 +1183,7 @@ export function EmployeeManager({
                 )}
                 {markPresentId === emp.id && (
                   <tr className="border-b border-line last:border-0">
-                    <td colSpan={6} className="bg-surface-muted px-4 py-4">
+                    <td colSpan={7} className="bg-surface-muted px-4 py-4">
                       <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
                         Mark {emp.full_name} present
                       </p>

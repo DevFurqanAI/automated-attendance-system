@@ -56,3 +56,33 @@ export function validateLeaveRange(
 
   return { ok: true, fromDate, toDate };
 }
+
+/**
+ * Leave-balance tracking (informational, not enforced): how many days of a
+ * `from_date`..`to_date` range fall within a given calendar year, clipped at
+ * the year boundary for a request that spans New Year's.
+ *
+ * Deliberately not a submission gate — this codebase's rule throughout is to
+ * flag and let a human decide (see detectSpoofing, branch_mismatch) rather
+ * than block outright. A balance going negative is something for HR to see
+ * on the leave page, not something the API refuses.
+ */
+export function daysInRangeWithinYear(fromDate: string, toDate: string, year: number): number {
+  const yearStart = `${year}-01-01`;
+  const yearEnd = `${year}-12-31`;
+  const start = fromDate < yearStart ? yearStart : fromDate;
+  const end = toDate > yearEnd ? yearEnd : toDate;
+  if (end < start) return 0;
+
+  return (
+    (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000 + 1
+  );
+}
+
+/** Total approved leave days an employee has used in `year`. */
+export function totalLeaveDaysInYear(
+  rows: { from_date: string; to_date: string }[],
+  year: number,
+): number {
+  return rows.reduce((sum, r) => sum + daysInRangeWithinYear(r.from_date, r.to_date, year), 0);
+}

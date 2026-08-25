@@ -286,6 +286,17 @@ export async function PATCH(request: Request) {
     update.weekly_off_days = body.weeklyOffDays;
   }
 
+  if (body.leaveBalanceDays !== undefined) {
+    const days = Number(body.leaveBalanceDays);
+    if (!Number.isFinite(days) || days < 0) {
+      return NextResponse.json(
+        { error: 'leaveBalanceDays must be a number 0 or greater.' },
+        { status: 400 },
+      );
+    }
+    update.leave_balance_days = days;
+  }
+
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: 'Nothing to update.' }, { status: 400 });
   }
@@ -374,6 +385,19 @@ export async function PATCH(request: Request) {
       entityId: id,
       subjectId: id,
       detail: { from: target.weekly_off_days, to: update.weekly_off_days },
+    });
+  }
+
+  if (
+    update.leave_balance_days !== undefined &&
+    update.leave_balance_days !== target.leave_balance_days
+  ) {
+    await recordAudit(admin, hr, {
+      action: 'employee.leave_balance_change',
+      entityType: 'employee',
+      entityId: id,
+      subjectId: id,
+      detail: { from: target.leave_balance_days, to: update.leave_balance_days },
     });
   }
 
