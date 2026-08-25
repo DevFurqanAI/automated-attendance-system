@@ -14,6 +14,7 @@ export type AuditAction =
   | 'attendance.decline'
   | 'attendance.force_checkout'
   | 'attendance.hr_create'
+  | 'attendance.hr_edit'
   | 'leave.approve'
   | 'leave.decline'
   | 'absence.reversed'
@@ -78,6 +79,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   'attendance.decline': 'Declined attendance',
   'attendance.force_checkout': 'Force-closed an open shift',
   'attendance.hr_create': 'Marked an employee present',
+  'attendance.hr_edit': 'Edited an attendance record',
   'leave.approve': 'Approved leave request',
   'leave.decline': 'Declined leave request',
   'absence.reversed': 'Reversed a marked absence',

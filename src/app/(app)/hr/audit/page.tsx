@@ -41,6 +41,8 @@ function summarise(row: AuditRow): string | null {
         .join(' · ');
     case 'attendance.hr_create':
       return typeof d.check_in_time === 'string' ? formatDateTime(d.check_in_time) : null;
+    case 'attendance.hr_edit':
+      return typeof d.reason === 'string' ? d.reason : null;
     default:
       return null;
   }

@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { loadAttendanceSummary, loadReport } from '@/lib/attendance/report';
-import { formatDateTime, formatDuration } from '@/lib/format';
+import { formatDuration } from '@/lib/format';
 import { createClient, getHrUser } from '@/lib/supabase/server';
-import { METHOD_LABELS, type Branch, type Employee } from '@/lib/types';
+import type { Branch, Employee } from '@/lib/types';
+import { ReportEntriesTable } from './ReportEntriesTable';
 import { ReportFilters } from './ReportFilters';
 
 export const metadata: Metadata = { title: 'Reports' };
@@ -125,41 +126,7 @@ export default async function ReportsPage({
           No approved attendance in this range.
         </p>
       ) : (
-        <div className="card mt-5 overflow-x-auto">
-          <table className="w-full min-w-[52rem] border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-line text-left">
-                <Th>Employee</Th>
-                <Th>Branch</Th>
-                <Th>Check in</Th>
-                <Th>Check out</Th>
-                <Th>Hours</Th>
-                <Th>Method</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.entries.map((e) => (
-                <tr key={e.id} className="border-b border-line last:border-0">
-                  <td className="px-4 py-3">
-                    <span className="font-semibold text-ink">{e.employeeName}</span>
-                    <span className="block text-xs text-ink-faint">
-                      {e.employeeEmail}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">{e.branchName}</td>
-                  <td className="px-4 py-3">{formatDateTime(e.checkInTime)}</td>
-                  <td className="px-4 py-3">{formatDateTime(e.checkOutTime)}</td>
-                  <td className="px-4 py-3 tabular-nums">
-                    {formatDuration(e.hours)}
-                  </td>
-                  <td className="px-4 py-3">
-                    {METHOD_LABELS[e.method]}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ReportEntriesTable entries={report.entries} branches={branches ?? []} />
       )}
     </div>
   );

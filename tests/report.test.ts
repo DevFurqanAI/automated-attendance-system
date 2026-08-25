@@ -6,6 +6,7 @@ const entry = (over: Partial<ReportEntry> = {}): ReportEntry => ({
   employeeName: 'Ada Lovelace',
   employeeEmail: 'ada@example.com',
   branchName: 'Downtown Branch',
+  branchId: 'branch-1',
   method: 'qr_gps',
   checkInTime: '2026-08-22T09:00:00.000Z',
   checkOutTime: '2026-08-22T17:30:00.000Z',

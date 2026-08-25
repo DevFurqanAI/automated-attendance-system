@@ -29,6 +29,7 @@ export interface ReportEntry {
   employeeName: string;
   employeeEmail: string;
   branchName: string;
+  branchId: string | null;
   method: AttendanceRow['method'];
   checkInTime: string | null;
   checkOutTime: string | null;
@@ -77,6 +78,7 @@ export async function loadReport(
     employeeName: row.employees?.full_name ?? 'Unknown',
     employeeEmail: row.employees?.email ?? '',
     branchName: row.branches?.name ?? (row.method === 'qr_gps' ? '—' : METHOD_LABELS[row.method]),
+    branchId: row.branch_id ?? null,
     // Only carried when the shift closed somewhere else — an ordinary shift
     // would just repeat the branch column for every row.
     checkOutBranchName:

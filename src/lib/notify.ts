@@ -28,7 +28,8 @@ export type NotificationKind =
   | 'role_changed'
   | 'account_deactivated'
   | 'email_changed'
-  | 'marked_absent';
+  | 'marked_absent'
+  | 'attendance_corrected';
 
 export interface NotificationInput {
   recipientId: string;
