@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { AUDIT_ACTION_LABELS, type AuditRow } from '@/lib/audit';
 import { formatDateTime } from '@/lib/format';
-import { createClient, getSessionUser } from '@/lib/supabase/server';
+import { createClient, getHrUser } from '@/lib/supabase/server';
 
 export const metadata: Metadata = { title: 'Audit log' };
 
@@ -32,11 +32,11 @@ function summarise(row: AuditRow): string | null {
 }
 
 export default async function AuditPage() {
-  const user = (await getSessionUser())!;
+  const user = await getHrUser();
   // The layout already gates the app, and RLS gates the table — but a
   // non-admin reaching this URL should get sent somewhere useful rather than
   // an empty table that looks broken.
-  if (user.employee.role !== 'hr_admin') redirect('/');
+  if (!user) redirect('/');
 
   const supabase = await createClient();
   const { data: rows } = await supabase

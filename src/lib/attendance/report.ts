@@ -15,6 +15,13 @@ export interface ReportFilters {
   to: string;
   employeeId?: string | null;
   branchId?: string | null;
+  /**
+   * Restricts results to this set of employee ids — set by the caller for a
+   * scoped hr_admin querying through the service-role client, which bypasses
+   * the RLS policy that would otherwise enforce this. `null`/`undefined`
+   * means unrestricted (super_admin, or a caller already scoped by RLS).
+   */
+  employeeIds?: string[] | null;
 }
 
 export interface ReportEntry {
@@ -58,6 +65,7 @@ export async function loadReport(
 
   if (filters.employeeId) query = query.eq('employee_id', filters.employeeId);
   if (filters.branchId) query = query.eq('branch_id', filters.branchId);
+  if (filters.employeeIds) query = query.in('employee_id', filters.employeeIds);
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
@@ -116,6 +124,7 @@ export async function loadAttendanceSummary(
 
   if (filters.employeeId) employeeQuery = employeeQuery.eq('id', filters.employeeId);
   if (filters.branchId) employeeQuery = employeeQuery.eq('default_branch_id', filters.branchId);
+  if (filters.employeeIds) employeeQuery = employeeQuery.in('id', filters.employeeIds);
   const { data: employees, error: employeesError } = await employeeQuery.returns<
     { id: string; full_name: string }[]
   >();
