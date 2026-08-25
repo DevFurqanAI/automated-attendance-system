@@ -200,9 +200,11 @@ async function sendByEmail(
   // to carry an email around just in case this channel is on.
   const { data, error } = await admin
     .from('employees')
-    .select('id, email, full_name')
+    .select('id, email, full_name, email_notifications_enabled')
     .in('id', [...new Set(entries.map((e) => e.recipientId))])
-    .returns<{ id: string; email: string; full_name: string }[]>();
+    .returns<
+      { id: string; email: string; full_name: string; email_notifications_enabled: boolean }[]
+    >();
 
   if (error) {
     console.error(`[notify] could not resolve recipients: ${error.message}`);
@@ -215,7 +217,9 @@ async function sendByEmail(
 
   for (const entry of entries) {
     const recipient = byId.get(entry.recipientId);
-    if (!recipient) continue;
+    // The in-app row (written above, unconditionally) already covers this
+    // person — the email is a mirror they have opted out of, not the record.
+    if (!recipient || !recipient.email_notifications_enabled) continue;
 
     const { error: sendError } = await resend.emails.send({
       from,

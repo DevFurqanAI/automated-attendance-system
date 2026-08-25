@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { formatDateTime } from '@/lib/format';
 import type { NotificationRow } from '@/lib/notify';
 import { createClient, getSessionUser } from '@/lib/supabase/server';
+import { EmailPreferenceToggle } from './EmailPreferenceToggle';
 import { MarkRead } from './MarkRead';
 
 export const metadata: Metadata = { title: 'Notifications' };
@@ -53,6 +54,8 @@ export default async function NotificationsPage() {
 
       {/* Marks them read once they have actually been on screen. */}
       <MarkRead ids={unreadIds} />
+
+      <EmailPreferenceToggle initialEnabled={user.employee.email_notifications_enabled} />
 
       {notifications.length === 0 ? (
         <div className="card mt-5 p-8 text-center">

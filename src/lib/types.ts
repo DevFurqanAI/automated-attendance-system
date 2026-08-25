@@ -47,6 +47,8 @@ export interface Employee {
   created_at: string;
   /** Annual leave allotment, in days. Informational — see daysInRangeWithinYear(). */
   leave_balance_days: number;
+  /** In-app notifications always send regardless; this gates the email mirror only. */
+  email_notifications_enabled: boolean;
 }
 
 export interface Attendance {
