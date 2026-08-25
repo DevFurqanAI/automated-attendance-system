@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { Fragment, useState } from 'react';
+import { todayInTz } from '@/lib/attendance/leave';
 import { toLocalInputValue } from '@/lib/format';
 import { WEEKDAY_LABELS, type Branch, type Employee, type Role } from '@/lib/types';
 
@@ -161,6 +162,73 @@ export function EmployeeManager({
 
     setMarkPresentId(null);
     setMarkPresentBusy(false);
+    router.refresh();
+  }
+
+  const [markAbsentId, setMarkAbsentId] = useState<string | null>(null);
+  const [markAbsentDate, setMarkAbsentDate] = useState('');
+  const [markAbsentBusy, setMarkAbsentBusy] = useState(false);
+  const [markAbsentError, setMarkAbsentError] = useState<string | null>(null);
+
+  function openMarkAbsent(id: string) {
+    setMarkAbsentId(id);
+    setMarkAbsentDate(todayInTz());
+    setMarkAbsentError(null);
+  }
+
+  async function submitMarkAbsent(employeeId: string) {
+    setMarkAbsentBusy(true);
+    setMarkAbsentError(null);
+
+    const response = await fetch('/api/hr/absences', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employeeId, date: markAbsentDate }),
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setMarkAbsentError(data.error ?? 'Could not mark the absence.');
+      setMarkAbsentBusy(false);
+      return;
+    }
+
+    setMarkAbsentId(null);
+    setMarkAbsentBusy(false);
+    router.refresh();
+  }
+
+  const [markLeaveId, setMarkLeaveId] = useState<string | null>(null);
+  const [markLeaveForm, setMarkLeaveForm] = useState({ fromDate: '', toDate: '', reason: '' });
+  const [markLeaveBusy, setMarkLeaveBusy] = useState(false);
+  const [markLeaveError, setMarkLeaveError] = useState<string | null>(null);
+
+  function openMarkLeave(id: string) {
+    setMarkLeaveId(id);
+    const today = todayInTz();
+    setMarkLeaveForm({ fromDate: today, toDate: today, reason: '' });
+    setMarkLeaveError(null);
+  }
+
+  async function submitMarkLeave(employeeId: string) {
+    setMarkLeaveBusy(true);
+    setMarkLeaveError(null);
+
+    const response = await fetch('/api/hr/leave/mark', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employeeId, ...markLeaveForm }),
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setMarkLeaveError(data.error ?? 'Could not record the leave.');
+      setMarkLeaveBusy(false);
+      return;
+    }
+
+    setMarkLeaveId(null);
+    setMarkLeaveBusy(false);
     router.refresh();
   }
 
@@ -479,6 +547,24 @@ export function EmployeeManager({
                       >
                         {markPresentId === emp.id ? 'Cancel' : 'Mark present'}
                       </button>
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-brand-primary underline"
+                        onClick={() =>
+                          markAbsentId === emp.id ? setMarkAbsentId(null) : openMarkAbsent(emp.id)
+                        }
+                      >
+                        {markAbsentId === emp.id ? 'Cancel' : 'Mark absent'}
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-brand-primary underline"
+                        onClick={() =>
+                          markLeaveId === emp.id ? setMarkLeaveId(null) : openMarkLeave(emp.id)
+                        }
+                      >
+                        {markLeaveId === emp.id ? 'Cancel' : 'Mark on leave'}
+                      </button>
                       {isSuperAdmin && !isSelf && (
                         <button
                           type="button"
@@ -493,6 +579,120 @@ export function EmployeeManager({
                     </div>
                   </td>
                 </tr>
+                {markAbsentId === emp.id && (
+                  <tr className="border-b border-line last:border-0">
+                    <td colSpan={5} className="bg-surface-muted px-4 py-4">
+                      <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
+                        Mark {emp.full_name} absent
+                      </p>
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+                        <div>
+                          <label className="field-label text-xs" htmlFor={`ma-date-${emp.id}`}>
+                            Date
+                          </label>
+                          <input
+                            id={`ma-date-${emp.id}`}
+                            type="date"
+                            className="field text-sm"
+                            value={markAbsentDate}
+                            max={todayInTz()}
+                            onChange={(e) => setMarkAbsentDate(e.target.value)}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          disabled={markAbsentBusy || !markAbsentDate}
+                          onClick={() => submitMarkAbsent(emp.id)}
+                        >
+                          {markAbsentBusy ? 'Saving…' : 'Mark absent'}
+                        </button>
+                      </div>
+                      {markAbsentError && (
+                        <p role="alert" className="mt-3 text-sm font-medium text-status-flagged">
+                          {markAbsentError}
+                        </p>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                {markLeaveId === emp.id && (
+                  <tr className="border-b border-line last:border-0">
+                    <td colSpan={5} className="bg-surface-muted px-4 py-4">
+                      <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
+                        Record leave for {emp.full_name}
+                      </p>
+                      <p className="mt-1 text-xs text-ink-faint">
+                        Lands directly as approved — for leave already agreed
+                        that never went through a request, or a backdated
+                        correction.
+                      </p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                        <div>
+                          <label className="field-label text-xs" htmlFor={`ml-from-${emp.id}`}>
+                            From
+                          </label>
+                          <input
+                            id={`ml-from-${emp.id}`}
+                            type="date"
+                            className="field text-sm"
+                            value={markLeaveForm.fromDate}
+                            onChange={(e) =>
+                              setMarkLeaveForm((f) => ({ ...f, fromDate: e.target.value }))
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="field-label text-xs" htmlFor={`ml-to-${emp.id}`}>
+                            To
+                          </label>
+                          <input
+                            id={`ml-to-${emp.id}`}
+                            type="date"
+                            className="field text-sm"
+                            value={markLeaveForm.toDate}
+                            min={markLeaveForm.fromDate}
+                            onChange={(e) =>
+                              setMarkLeaveForm((f) => ({ ...f, toDate: e.target.value }))
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="field-label text-xs" htmlFor={`ml-reason-${emp.id}`}>
+                            Reason
+                          </label>
+                          <input
+                            id={`ml-reason-${emp.id}`}
+                            className="field text-sm"
+                            maxLength={500}
+                            value={markLeaveForm.reason}
+                            onChange={(e) =>
+                              setMarkLeaveForm((f) => ({ ...f, reason: e.target.value }))
+                            }
+                          />
+                        </div>
+                      </div>
+                      {markLeaveError && (
+                        <p role="alert" className="mt-3 text-sm font-medium text-status-flagged">
+                          {markLeaveError}
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        className="btn-primary mt-4"
+                        disabled={
+                          markLeaveBusy ||
+                          !markLeaveForm.fromDate ||
+                          !markLeaveForm.toDate ||
+                          !markLeaveForm.reason.trim()
+                        }
+                        onClick={() => submitMarkLeave(emp.id)}
+                      >
+                        {markLeaveBusy ? 'Saving…' : 'Record leave'}
+                      </button>
+                    </td>
+                  </tr>
+                )}
                 {deletingId === emp.id && (
                   <tr className="border-b border-line last:border-0">
                     <td colSpan={5} className="bg-status-flagged-bg px-4 py-4">

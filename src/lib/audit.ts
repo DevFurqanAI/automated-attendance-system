@@ -17,6 +17,8 @@ export type AuditAction =
   | 'leave.approve'
   | 'leave.decline'
   | 'absence.reversed'
+  | 'absence.hr_create'
+  | 'leave.hr_mark'
   | 'employee.invite'
   | 'employee.role_change'
   | 'employee.activate'
@@ -79,6 +81,8 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   'leave.approve': 'Approved leave request',
   'leave.decline': 'Declined leave request',
   'absence.reversed': 'Reversed a marked absence',
+  'absence.hr_create': 'Marked an employee absent',
+  'leave.hr_mark': 'Recorded leave directly',
   'employee.invite': 'Invited employee',
   'employee.role_change': 'Changed role',
   'employee.activate': 'Reactivated employee',

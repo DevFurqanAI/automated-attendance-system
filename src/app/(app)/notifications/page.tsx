@@ -19,6 +19,7 @@ const STYLE: Record<NotificationRow['kind'], { icon: string; tone: string }> = {
   role_changed: { icon: '★', tone: 'text-brand-primary' },
   account_deactivated: { icon: '✕', tone: 'text-status-declined' },
   email_changed: { icon: '★', tone: 'text-brand-primary' },
+  marked_absent: { icon: '✕', tone: 'text-status-declined' },
 };
 
 export default async function NotificationsPage() {
