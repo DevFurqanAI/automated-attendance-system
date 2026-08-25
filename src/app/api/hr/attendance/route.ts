@@ -1,24 +1,30 @@
 import { NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { FUTURE_TOLERANCE_MS } from '@/lib/attendance/remote-claim';
 import { recordAudit } from '@/lib/audit';
 import { isEmployeeVisibleTo } from '@/lib/hr-scope';
 import { notify } from '@/lib/notify';
-import { createAdminClient, getHrUser } from '@/lib/supabase/server';
+import { createAdminClient, getHrUser, type SessionUser } from '@/lib/supabase/server';
 import type { Employee } from '@/lib/types';
 
 /**
- * POST /api/hr/attendance — HR marks an employee present directly.
+ * POST /api/hr/attendance — HR marks one or more employees present directly.
  *
  * For the cases nothing else covers: a phone with no signal all day, a
  * paper sign-in sheet predating this system, or a plain correction where
  * nothing was ever submitted. Lands directly as `approved` — HR creating the
  * record already IS the authorization, so there is no queue to sit in.
- * Always audited ('attendance.hr_create').
+ * Always audited ('attendance.hr_create'), one entry per employee.
  *
  * Deliberately creation-only, not an edit path for an existing settled
  * record — see the "re-reviewing a settled record" comment in
  * src/app/api/hr/review/route.ts. A correction to something already on the
  * books is a new, superseding entry, not a silent rewrite of history.
+ *
+ * Accepts either `employeeId` (single) or `employeeIds` (bulk — e.g. a whole
+ * branch present for a training day). The same check-in/check-out/branch/note
+ * is applied to every id; per-employee scope failures are reported
+ * individually rather than failing the whole batch.
  */
 export async function POST(request: Request) {
   const hr = await getHrUser();
@@ -31,6 +37,7 @@ export async function POST(request: Request) {
 
   let body: {
     employeeId?: unknown;
+    employeeIds?: unknown;
     checkInTime?: unknown;
     checkOutTime?: unknown;
     branchId?: unknown;
@@ -42,9 +49,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Malformed request.' }, { status: 400 });
   }
 
-  const employeeId = typeof body.employeeId === 'string' ? body.employeeId : '';
-  if (!employeeId) {
-    return NextResponse.json({ error: 'employeeId is required.' }, { status: 400 });
+  const employeeIds: string[] = Array.isArray(body.employeeIds)
+    ? body.employeeIds.filter((v): v is string => typeof v === 'string')
+    : typeof body.employeeId === 'string' && body.employeeId
+      ? [body.employeeId]
+      : [];
+
+  if (employeeIds.length === 0) {
+    return NextResponse.json(
+      { error: 'employeeId or employeeIds is required.' },
+      { status: 400 },
+    );
   }
 
   const checkIn = parseDate(body.checkInTime);
@@ -90,6 +105,47 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
 
+  const results = await Promise.all(
+    employeeIds.map((employeeId) =>
+      markOnePresent(admin, hr, employeeId, checkIn, checkOut, branchId, note),
+    ),
+  );
+
+  const failed = results.filter((r) => !r.ok);
+  const succeeded = results.filter((r) => r.ok);
+
+  if (employeeIds.length === 1) {
+    const only = results[0];
+    if (!only.ok) {
+      return NextResponse.json({ error: only.error }, { status: only.status });
+    }
+    return NextResponse.json({
+      id: only.id,
+      status: 'approved',
+      checkInTime: checkIn.toISOString(),
+      checkOutTime: checkOut?.toISOString() ?? null,
+    });
+  }
+
+  return NextResponse.json({
+    succeeded: succeeded.length,
+    failed: failed.map((f) => ({ employeeId: f.employeeId, error: f.error })),
+  });
+}
+
+type MarkResult =
+  | { ok: true; employeeId: string; id: string }
+  | { ok: false; employeeId: string; error: string; status: number };
+
+async function markOnePresent(
+  admin: SupabaseClient,
+  hr: SessionUser,
+  employeeId: string,
+  checkIn: Date,
+  checkOut: Date | null,
+  branchId: string | null,
+  note: string,
+): Promise<MarkResult> {
   const { data: target } = await admin
     .from('employees')
     .select('*')
@@ -97,13 +153,15 @@ export async function POST(request: Request) {
     .single<Employee>();
 
   if (!target) {
-    return NextResponse.json({ error: 'Employee not found.' }, { status: 404 });
+    return { ok: false, employeeId, error: 'Employee not found.', status: 404 };
   }
   if (hr.employee.role !== 'super_admin' && !(await isEmployeeVisibleTo(admin, hr, target))) {
-    return NextResponse.json(
-      { error: 'This employee is not in one of your assigned branches.' },
-      { status: 403 },
-    );
+    return {
+      ok: false,
+      employeeId,
+      error: 'This employee is not in one of your assigned branches.',
+      status: 403,
+    };
   }
 
   const { data: inserted, error } = await admin
@@ -124,10 +182,7 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json(
-      { error: 'Could not create the record. Please try again.' },
-      { status: 500 },
-    );
+    return { ok: false, employeeId, error: 'Could not create the record.', status: 500 };
   }
 
   await recordAudit(admin, hr, {
@@ -155,12 +210,7 @@ export async function POST(request: Request) {
     },
   ]);
 
-  return NextResponse.json({
-    id: inserted.id,
-    status: 'approved',
-    checkInTime: checkIn.toISOString(),
-    checkOutTime: checkOut?.toISOString() ?? null,
-  });
+  return { ok: true, employeeId, id: inserted.id };
 }
 
 /**

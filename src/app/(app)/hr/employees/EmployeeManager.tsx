@@ -39,6 +39,69 @@ export function EmployeeManager({
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [roleFilter, setRoleFilter] = useState<'all' | Role>('all');
 
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showBulkPresent, setShowBulkPresent] = useState(false);
+  const [bulkPresentForm, setBulkPresentForm] = useState({
+    checkIn: '',
+    checkOut: '',
+    branchId: '',
+    note: '',
+  });
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function submitBulkPresent() {
+    setBulkBusy(true);
+    setBulkError(null);
+    setBulkNotice(null);
+
+    const response = await fetch('/api/hr/attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        employeeIds: [...selected],
+        checkInTime: bulkPresentForm.checkIn
+          ? new Date(bulkPresentForm.checkIn).toISOString()
+          : undefined,
+        checkOutTime: bulkPresentForm.checkOut
+          ? new Date(bulkPresentForm.checkOut).toISOString()
+          : undefined,
+        branchId: bulkPresentForm.branchId || undefined,
+        note: bulkPresentForm.note || undefined,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setBulkError(data.error ?? 'Could not mark the selected employees present.');
+      setBulkBusy(false);
+      return;
+    }
+
+    const failedCount = data.failed?.length ?? 0;
+    setBulkNotice(
+      failedCount > 0
+        ? `Marked ${data.succeeded} present; ${failedCount} failed (${data.failed
+            .map((f: { error: string }) => f.error)
+            .join('; ')}).`
+        : `Marked ${data.succeeded ?? selected.size} employee(s) present.`,
+    );
+    setBulkBusy(false);
+    setShowBulkPresent(false);
+    setSelected(new Set());
+    router.refresh();
+  }
+
   const visibleEmployees = employees.filter((emp) => {
     if (statusFilter === 'active' && !emp.active) return false;
     if (statusFilter === 'inactive' && emp.active) return false;
@@ -424,10 +487,125 @@ export function EmployeeManager({
         </p>
       </div>
 
+      {selected.size > 0 && (
+        <div className="card mt-3 flex flex-wrap items-center gap-3 p-3">
+          <p className="text-sm font-semibold text-ink">{selected.size} selected</p>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setShowBulkPresent((v) => !v)}
+          >
+            {showBulkPresent ? 'Cancel' : 'Mark selected present'}
+          </button>
+          <button
+            type="button"
+            className="text-xs font-semibold text-ink-faint underline"
+            onClick={() => setSelected(new Set())}
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
+      {bulkNotice && (
+        <p className="mt-3 border-l-4 border-brand-primary bg-brand-primary-soft p-3 text-sm font-medium text-brand-secondary">
+          {bulkNotice}
+        </p>
+      )}
+
+      {showBulkPresent && selected.size > 0 && (
+        <div className="card mt-3 p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
+            Mark {selected.size} employee(s) present
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label className="field-label text-xs" htmlFor="bulk-in">
+                Check in
+              </label>
+              <input
+                id="bulk-in"
+                type="datetime-local"
+                className="field text-sm"
+                value={bulkPresentForm.checkIn}
+                max={toLocalInputValue(new Date())}
+                onChange={(e) =>
+                  setBulkPresentForm((f) => ({ ...f, checkIn: e.target.value }))
+                }
+              />
+            </div>
+            <div>
+              <label className="field-label text-xs" htmlFor="bulk-out">
+                Check out <span className="font-normal text-ink-faint">(optional)</span>
+              </label>
+              <input
+                id="bulk-out"
+                type="datetime-local"
+                className="field text-sm"
+                value={bulkPresentForm.checkOut}
+                min={bulkPresentForm.checkIn}
+                max={toLocalInputValue(new Date())}
+                onChange={(e) =>
+                  setBulkPresentForm((f) => ({ ...f, checkOut: e.target.value }))
+                }
+              />
+            </div>
+            <div>
+              <label className="field-label text-xs" htmlFor="bulk-branch">
+                Branch <span className="font-normal text-ink-faint">(optional)</span>
+              </label>
+              <select
+                id="bulk-branch"
+                className="field text-sm"
+                value={bulkPresentForm.branchId}
+                onChange={(e) =>
+                  setBulkPresentForm((f) => ({ ...f, branchId: e.target.value }))
+                }
+              >
+                <option value="">None</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="field-label text-xs" htmlFor="bulk-note">
+                Note <span className="font-normal text-ink-faint">(optional)</span>
+              </label>
+              <input
+                id="bulk-note"
+                className="field text-sm"
+                maxLength={500}
+                value={bulkPresentForm.note}
+                onChange={(e) => setBulkPresentForm((f) => ({ ...f, note: e.target.value }))}
+              />
+            </div>
+          </div>
+          {bulkError && (
+            <p role="alert" className="mt-3 text-sm font-medium text-status-flagged">
+              {bulkError}
+            </p>
+          )}
+          <button
+            type="button"
+            className="btn-primary mt-4"
+            disabled={bulkBusy || !bulkPresentForm.checkIn}
+            onClick={submitBulkPresent}
+          >
+            {bulkBusy ? 'Saving…' : `Mark ${selected.size} present`}
+          </button>
+        </div>
+      )}
+
       <div className="card mt-3 overflow-x-auto">
         <table className="w-full min-w-[48rem] border-collapse text-sm">
           <thead>
             <tr className="border-b border-line text-left">
+              <th className="px-4 py-3">
+                <span className="sr-only">Select</span>
+              </th>
               <Th>Name</Th>
               <Th>Role</Th>
               <Th>Default branch</Th>
@@ -438,7 +616,7 @@ export function EmployeeManager({
           <tbody>
             {visibleEmployees.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-ink-muted">
+                <td colSpan={6} className="px-4 py-8 text-center text-ink-muted">
                   No employees match this filter.
                 </td>
               </tr>
@@ -460,6 +638,14 @@ export function EmployeeManager({
               return (
                 <Fragment key={emp.id}>
                 <tr className="border-b border-line last:border-0">
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${emp.full_name}`}
+                      checked={selected.has(emp.id)}
+                      onChange={() => toggleSelected(emp.id)}
+                    />
+                  </td>
                   <td className="px-4 py-3">
                     <span className="font-semibold text-ink">
                       {emp.full_name}
@@ -654,7 +840,7 @@ export function EmployeeManager({
                 </tr>
                 {markAbsentId === emp.id && (
                   <tr className="border-b border-line last:border-0">
-                    <td colSpan={5} className="bg-surface-muted px-4 py-4">
+                    <td colSpan={6} className="bg-surface-muted px-4 py-4">
                       <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
                         Mark {emp.full_name} absent
                       </p>
@@ -691,7 +877,7 @@ export function EmployeeManager({
                 )}
                 {markLeaveId === emp.id && (
                   <tr className="border-b border-line last:border-0">
-                    <td colSpan={5} className="bg-surface-muted px-4 py-4">
+                    <td colSpan={6} className="bg-surface-muted px-4 py-4">
                       <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
                         Record leave for {emp.full_name}
                       </p>
@@ -768,7 +954,7 @@ export function EmployeeManager({
                 )}
                 {deletingId === emp.id && (
                   <tr className="border-b border-line last:border-0">
-                    <td colSpan={5} className="bg-status-flagged-bg px-4 py-4">
+                    <td colSpan={6} className="bg-status-flagged-bg px-4 py-4">
                       <p className="text-sm font-bold text-status-flagged">
                         Permanently delete {emp.full_name}?
                       </p>
@@ -814,7 +1000,7 @@ export function EmployeeManager({
                 )}
                 {markPresentId === emp.id && (
                   <tr className="border-b border-line last:border-0">
-                    <td colSpan={5} className="bg-surface-muted px-4 py-4">
+                    <td colSpan={6} className="bg-surface-muted px-4 py-4">
                       <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
                         Mark {emp.full_name} present
                       </p>

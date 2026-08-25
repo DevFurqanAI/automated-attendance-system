@@ -174,6 +174,50 @@ export function ReviewDashboard({
   const flagged = records.filter((r) => r.status === 'flagged');
   const visible = tab === 'pending' ? pending : tab === 'flagged' ? flagged : records;
 
+  // Bulk approve/decline — sequential over the existing single-record
+  // endpoints, so per-record logic (self-review, remote-claim promotion)
+  // never has to be duplicated server-side. Excludes any record still open
+  // (no check-out scanned): those can only be closed via force-checkout, one
+  // at a time, on the card itself.
+  const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(new Set());
+  const [selectedLeaveIds, setSelectedLeaveIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  function toggleRecordSelected(id: string) {
+    setSelectedRecordIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleLeaveSelected(id: string) {
+    setSelectedLeaveIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function bulkReviewRecords(action: 'approve' | 'decline') {
+    setBulkBusy(true);
+    for (const id of selectedRecordIds) {
+      await review(id, action);
+    }
+    setSelectedRecordIds(new Set());
+    setBulkBusy(false);
+  }
+
+  async function bulkReviewLeave(action: 'approve' | 'decline') {
+    setBulkBusy(true);
+    for (const id of selectedLeaveIds) {
+      await reviewLeave(id, action);
+    }
+    setSelectedLeaveIds(new Set());
+    setBulkBusy(false);
+  }
+
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -227,36 +271,62 @@ export function ReviewDashboard({
             Nothing to review. New requests appear here automatically.
           </p>
         ) : (
-          <ul className="mt-5 space-y-3">
-            {leaveRequests.map((row) => (
-              <LeaveCard
-                key={row.id}
-                row={row}
-                isOwnRecord={row.employee_id === currentUserId}
-                busy={busyId === row.id}
-                onReview={reviewLeave}
+          <>
+            {selectedLeaveIds.size > 0 && (
+              <BulkToolbar
+                count={selectedLeaveIds.size}
+                busy={bulkBusy}
+                onApprove={() => bulkReviewLeave('approve')}
+                onDecline={() => bulkReviewLeave('decline')}
+                onClear={() => setSelectedLeaveIds(new Set())}
               />
-            ))}
-          </ul>
+            )}
+            <ul className="mt-5 space-y-3">
+              {leaveRequests.map((row) => (
+                <LeaveCard
+                  key={row.id}
+                  row={row}
+                  isOwnRecord={row.employee_id === currentUserId}
+                  busy={busyId === row.id}
+                  onReview={reviewLeave}
+                  selected={selectedLeaveIds.has(row.id)}
+                  onToggleSelected={() => toggleLeaveSelected(row.id)}
+                />
+              ))}
+            </ul>
+          </>
         )
       ) : visible.length === 0 ? (
         <p className="card mt-5 p-10 text-center text-ink-muted">
           Nothing to review. New requests appear here automatically.
         </p>
       ) : (
-        <ul className="mt-5 space-y-3">
-          {visible.map((row) => (
-            <ReviewCard
-              key={row.id}
-              row={row}
-              branches={branches}
-              isOwnRecord={row.employee_id === currentUserId}
-              busy={busyId === row.id}
-              onReview={review}
-              onForceCheckout={forceCheckout}
+        <>
+          {selectedRecordIds.size > 0 && (
+            <BulkToolbar
+              count={selectedRecordIds.size}
+              busy={bulkBusy}
+              onApprove={() => bulkReviewRecords('approve')}
+              onDecline={() => bulkReviewRecords('decline')}
+              onClear={() => setSelectedRecordIds(new Set())}
             />
-          ))}
-        </ul>
+          )}
+          <ul className="mt-5 space-y-3">
+            {visible.map((row) => (
+              <ReviewCard
+                key={row.id}
+                row={row}
+                branches={branches}
+                isOwnRecord={row.employee_id === currentUserId}
+                busy={busyId === row.id}
+                onReview={review}
+                onForceCheckout={forceCheckout}
+                selected={selectedRecordIds.has(row.id)}
+                onToggleSelected={() => toggleRecordSelected(row.id)}
+              />
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );
@@ -267,20 +337,33 @@ function LeaveCard({
   isOwnRecord,
   busy,
   onReview,
+  selected,
+  onToggleSelected,
 }: {
   row: LeaveRequestRow;
   isOwnRecord: boolean;
   busy: boolean;
   onReview: (id: string, action: 'approve' | 'decline') => void;
+  selected: boolean;
+  onToggleSelected: () => void;
 }) {
   return (
     <li className="card p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-bold text-brand-secondary">
-            {row.employees?.full_name ?? 'Unknown employee'}
-          </p>
-          <p className="text-sm text-ink-muted">{row.employees?.email}</p>
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            aria-label={`Select ${row.employees?.full_name ?? 'this request'}`}
+            className="mt-1"
+            checked={selected}
+            onChange={onToggleSelected}
+          />
+          <div>
+            <p className="font-bold text-brand-secondary">
+              {row.employees?.full_name ?? 'Unknown employee'}
+            </p>
+            <p className="text-sm text-ink-muted">{row.employees?.email}</p>
+          </div>
         </div>
         <StatusBadge status={row.status} />
       </div>
@@ -332,6 +415,8 @@ function ReviewCard({
   busy,
   onReview,
   onForceCheckout,
+  selected,
+  onToggleSelected,
 }: {
   row: AttendanceRow;
   branches: Branch[];
@@ -343,6 +428,8 @@ function ReviewCard({
     overrides?: { checkInTime?: string; checkOutTime?: string | null; branchId?: string | null },
   ) => void;
   onForceCheckout: (id: string, checkOutTime: string) => void;
+  selected: boolean;
+  onToggleSelected: () => void;
 }) {
   const remote = row.method === 'remote_request';
   // A QR shift with no check-out at all: no scan ever came in, so it cannot
@@ -387,11 +474,22 @@ function ReviewCard({
   return (
     <li className="card p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-bold text-brand-secondary">
-            {row.employees?.full_name ?? 'Unknown employee'}
-          </p>
-          <p className="text-sm text-ink-muted">{row.employees?.email}</p>
+        <div className="flex items-start gap-3">
+          {!stuckOpen && (
+            <input
+              type="checkbox"
+              aria-label={`Select ${row.employees?.full_name ?? 'this record'}`}
+              className="mt-1"
+              checked={selected}
+              onChange={onToggleSelected}
+            />
+          )}
+          <div>
+            <p className="font-bold text-brand-secondary">
+              {row.employees?.full_name ?? 'Unknown employee'}
+            </p>
+            <p className="text-sm text-ink-muted">{row.employees?.email}</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <span className="badge bg-surface-muted text-ink-muted">
@@ -615,6 +713,40 @@ function Field({
         {label}
       </dt>
       <dd className="mt-0.5 text-sm text-ink">{children}</dd>
+    </div>
+  );
+}
+
+function BulkToolbar({
+  count,
+  busy,
+  onApprove,
+  onDecline,
+  onClear,
+}: {
+  count: number;
+  busy: boolean;
+  onApprove: () => void;
+  onDecline: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="card mt-5 flex flex-wrap items-center gap-3 p-3">
+      <p className="text-sm font-semibold text-ink">{count} selected</p>
+      <button type="button" className="btn-primary" disabled={busy} onClick={onApprove}>
+        {busy ? 'Saving…' : 'Approve selected'}
+      </button>
+      <button type="button" className="btn-danger" disabled={busy} onClick={onDecline}>
+        Decline selected
+      </button>
+      <button
+        type="button"
+        className="text-xs font-semibold text-ink-faint underline"
+        disabled={busy}
+        onClick={onClear}
+      >
+        Clear selection
+      </button>
     </div>
   );
 }
