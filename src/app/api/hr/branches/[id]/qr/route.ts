@@ -44,13 +44,19 @@ export async function GET(
     );
   }
 
-  const { data: branch } = await admin
+  const { data: branch, error: lookupError } = await admin
     .from('branches')
     .select('*')
     .eq('id', id)
     .single<BranchWithSecret>();
 
   if (!branch) {
+    // Same ambiguity as the PATCH route: this shape is identical whether the
+    // branch genuinely doesn't exist or the admin client itself is failing
+    // (wrong/expired SUPABASE_SERVICE_ROLE_KEY) — log the real reason.
+    if (lookupError) {
+      console.error(`[branches/qr] admin lookup failed for ${id}: ${lookupError.message}`);
+    }
     return NextResponse.json({ error: 'Branch not found.' }, { status: 404 });
   }
 

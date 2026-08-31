@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   CALENDAR_DAY_KIND_LABELS,
   WEEKDAY_LABELS,
@@ -653,9 +653,19 @@ function BranchCard({
 }
 
 function QrDialog({ branch, onClose }: { branch: Branch; onClose: () => void }) {
+  // The browser's print dialog otherwise prints the whole DOM — the branch
+  // list behind this modal included, as extra pages before/after the QR
+  // itself. Marking <body> only while this dialog is mounted scopes the
+  // "hide everything except this" print rule (globals.css) to just this
+  // dialog, so it can't affect printing added to any other page later.
+  useEffect(() => {
+    document.body.classList.add('printing-qr');
+    return () => document.body.classList.remove('printing-qr');
+  }, []);
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-brand-secondary/70 p-4 print:static print:bg-transparent print:p-0"
+      className="qr-print-root fixed inset-0 z-50 flex items-center justify-center bg-brand-secondary/70 p-4 print:static print:bg-transparent print:p-0"
       role="dialog"
       aria-modal="true"
       aria-label={`QR code for ${branch.name}`}

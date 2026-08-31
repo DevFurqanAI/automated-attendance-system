@@ -43,13 +43,19 @@ export async function PATCH(
   }
 
   if (body.rotate === true) {
-    const { data: current } = await admin
+    const { data: current, error: lookupError } = await admin
       .from('branches')
       .select('qr_version')
       .eq('id', id)
       .single<{ qr_version: number }>();
 
     if (!current) {
+      // A real "no such branch" is indistinguishable from the admin client
+      // itself failing (e.g. a misconfigured SUPABASE_SERVICE_ROLE_KEY) unless
+      // the actual Supabase error is logged — both come back as `data: null`.
+      if (lookupError) {
+        console.error(`[branches] admin lookup failed for ${id}: ${lookupError.message}`);
+      }
       return NextResponse.json({ error: 'Branch not found.' }, { status: 404 });
     }
 

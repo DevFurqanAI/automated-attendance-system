@@ -51,6 +51,27 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/*
+ * Print only the branch QR dialog (BranchManager.tsx), not the page behind
+ * it. `.printing-qr` is added to <body> only while that dialog is mounted, so
+ * this cannot affect printing on any other page — visibility (not display)
+ * is used so hidden elements keep their layout box, then the dialog itself is
+ * pulled out of flow to fill the printed page on its own.
+ */
+@media print {
+  body.printing-qr * {
+    visibility: hidden;
+  }
+  body.printing-qr .qr-print-root,
+  body.printing-qr .qr-print-root * {
+    visibility: visible;
+  }
+  body.printing-qr .qr-print-root {
+    position: fixed;
+    inset: 0;
+  }
+}
+
 body {
   background-color: var(--color-surface-muted);
   color: var(--color-ink);
