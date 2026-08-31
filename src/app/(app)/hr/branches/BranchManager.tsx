@@ -394,6 +394,7 @@ function BranchCard({
   });
   const [savingCalendar, setSavingCalendar] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [openSection, setOpenSection] = useState<'schedule' | 'holidays' | null>(null);
 
   function toggleOffDay(day: number) {
     setOffDays((prev) =>
@@ -480,18 +481,40 @@ function BranchCard({
           Show QR code
         </button>
         {canManage && (
-          <button
-            type="button"
-            className="btn-danger"
-            disabled={busy}
-            onClick={onRotate}
-          >
-            Rotate code
-          </button>
+          <>
+            <button
+              type="button"
+              className="btn-danger"
+              disabled={busy}
+              onClick={onRotate}
+            >
+              Rotate code
+            </button>
+            <button
+              type="button"
+              className={openSection === 'schedule' ? 'btn-ghost' : 'btn-secondary'}
+              onClick={() =>
+                setOpenSection(openSection === 'schedule' ? null : 'schedule')
+              }
+            >
+              {openSection === 'schedule' ? 'Hide schedule' : 'Schedule'}
+            </button>
+            <button
+              type="button"
+              className={openSection === 'holidays' ? 'btn-ghost' : 'btn-secondary'}
+              onClick={() =>
+                setOpenSection(openSection === 'holidays' ? null : 'holidays')
+              }
+            >
+              {openSection === 'holidays'
+                ? 'Hide holidays'
+                : `Holidays${calendarDays.length > 0 ? ` (${calendarDays.length})` : ''}`}
+            </button>
+          </>
         )}
       </div>
 
-      {canManage && (
+      {canManage && openSection === 'schedule' && (
         <div className="mt-4 border-t border-line pt-4">
           <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
             Weekly off days
@@ -554,14 +577,18 @@ function BranchCard({
 
           <button
             type="button"
-            className="btn-secondary mt-2"
+            className="btn-secondary mt-3"
             disabled={savingSchedule}
             onClick={saveSchedule}
           >
             {savingSchedule ? 'Saving…' : 'Save schedule'}
           </button>
+        </div>
+      )}
 
-          <p className="mt-4 text-xs font-bold uppercase tracking-wide text-ink-muted">
+      {canManage && openSection === 'holidays' && (
+        <div className="mt-4 border-t border-line pt-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
             Holidays &amp; special workdays
           </p>
           {calendarDays.length > 0 && (
@@ -587,7 +614,7 @@ function BranchCard({
               ))}
             </ul>
           )}
-          <form onSubmit={addCalendarDay} className="mt-2 flex flex-wrap items-end gap-2">
+          <form onSubmit={addCalendarDay} className="mt-3 flex flex-wrap items-end gap-2">
             <input
               type="date"
               className="field text-sm"
