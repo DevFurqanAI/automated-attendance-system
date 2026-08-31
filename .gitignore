@@ -38,7 +38,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# serena
 .serena
+
+#docs
+docs/
 
 scripts/
 
