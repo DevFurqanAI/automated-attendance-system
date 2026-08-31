@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
+import { cache } from 'react';
 import { requirePublicEnv, requireServerEnv } from '@/lib/env';
 import type { Employee } from '@/lib/types';
 
@@ -57,8 +58,14 @@ export interface SessionUser {
  * Uses `getClaims()`, which verifies the JWT signature against the Auth
  * server rather than trusting whatever is in local storage.
  * Returns null when there is no valid session or the employee is deactivated.
+ *
+ * Wrapped in React's `cache()` so the layout and every page under it — each
+ * of which calls this independently — share one JWT verification and one
+ * `employees` round trip per request instead of paying for it again at every
+ * level of the route tree. Safe to memoize per-request: nothing here reads
+ * data that changes mid-request, and the cache never crosses requests.
  */
-export async function getSessionUser(): Promise<SessionUser | null> {
+export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const supabase = await createClient();
 
   const { data, error } = await supabase.auth.getClaims();
@@ -80,7 +87,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     email: employee.email,
     employee,
   };
-}
+});
 
 /** Same as getSessionUser, but also asserts HR-level access (hr_admin or super_admin). */
 export async function getHrUser(): Promise<SessionUser | null> {
