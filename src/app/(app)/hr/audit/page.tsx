@@ -16,6 +16,8 @@ function summarise(row: AuditRow): string | null {
       return typeof d.email === 'string' ? d.email : null;
     case 'employee.email_change':
       return `${d.from} → ${d.to}`;
+    case 'employee.name_change':
+      return `${d.from} → ${d.to}`;
     case 'employee.leave_balance_change':
       return `${d.from} → ${d.to} days`;
     case 'employee.expected_start_time_change':

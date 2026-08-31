@@ -6,6 +6,7 @@ import { todayInTz } from '@/lib/attendance/leave';
 import { parseCsv } from '@/lib/csv';
 import { toLocalInputValue } from '@/lib/format';
 import { WEEKDAY_LABELS, type Branch, type Employee, type Role } from '@/lib/types';
+import { RowActionsMenu } from './RowActionsMenu';
 
 interface ImportRow {
   fullName: string;
@@ -228,7 +229,7 @@ export function EmployeeManager({
     router.refresh();
   }
 
-  async function update(id: string, patch: Record<string, unknown>) {
+  async function update(id: string, patch: Record<string, unknown>): Promise<boolean> {
     setBusyId(id);
     setError(null);
 
@@ -245,6 +246,7 @@ export function EmployeeManager({
 
     setBusyId(null);
     router.refresh();
+    return response.ok;
   }
 
   async function saveBranches(hrAdminId: string) {
@@ -267,6 +269,50 @@ export function EmployeeManager({
 
     setBusyId(null);
     router.refresh();
+  }
+
+  const [scheduleOpenId, setScheduleOpenId] = useState<string | null>(null);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<{
+    fullName: string;
+    role: Role;
+    defaultBranchId: string;
+  } | null>(null);
+
+  function startEdit(emp: Employee) {
+    setEditingId(emp.id);
+    setEditDraft({
+      fullName: emp.full_name,
+      role: emp.role,
+      defaultBranchId: emp.default_branch_id ?? '',
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditDraft(null);
+  }
+
+  async function saveEdit(emp: Employee) {
+    if (!editDraft) return;
+    const fullName = editDraft.fullName.trim();
+    if (!fullName) return;
+
+    const patch: Record<string, unknown> = {};
+    if (fullName !== emp.full_name) patch.fullName = fullName;
+    if (editDraft.role !== emp.role) patch.role = editDraft.role;
+    if (editDraft.defaultBranchId !== (emp.default_branch_id ?? '')) {
+      patch.defaultBranchId = editDraft.defaultBranchId;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      cancelEdit();
+      return;
+    }
+
+    const ok = await update(emp.id, patch);
+    if (ok) cancelEdit();
   }
 
   const [editingEmailId, setEditingEmailId] = useState<string | null>(null);
@@ -760,24 +806,25 @@ export function EmployeeManager({
       )}
 
       <div className="card mt-3 overflow-x-auto">
-        <table className="w-full min-w-[48rem] border-collapse text-sm">
+        <table className="w-full min-w-[42rem] border-collapse text-sm">
           <thead>
             <tr className="border-b border-line text-left">
-              <th className="px-4 py-3">
+              <th className="px-4 py-4">
                 <span className="sr-only">Select</span>
               </th>
               <Th>Name</Th>
               <Th>Role</Th>
               <Th>Default branch</Th>
-              <Th>Weekly off days</Th>
-              <Th>Leave balance</Th>
               <Th>Status</Th>
+              <th className="px-4 py-4">
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
             {visibleEmployees.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-ink-muted">
+                <td colSpan={6} className="px-4 py-8 text-center text-ink-muted">
                   No employees match this filter.
                 </td>
               </tr>
@@ -799,7 +846,7 @@ export function EmployeeManager({
               return (
                 <Fragment key={emp.id}>
                 <tr className="border-b border-line last:border-0">
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-4">
                     <input
                       type="checkbox"
                       aria-label={`Select ${emp.full_name}`}
@@ -807,20 +854,35 @@ export function EmployeeManager({
                       onChange={() => toggleSelected(emp.id)}
                     />
                   </td>
-                  <td className="px-4 py-3">
-                    <span className="font-semibold text-ink">
-                      {emp.full_name}
-                    </span>
-                    {isSelf && (
-                      <span className="ml-2 text-xs text-ink-faint">(you)</span>
-                    )}
-                    {!isSelf && emp.role !== 'employee' && (
-                      <span
-                        className="ml-2 text-xs text-ink-faint"
-                        title="Role and access changes for administrators require a super administrator"
-                      >
-                        ({emp.role === 'super_admin' ? 'super admin' : 'administrator'})
-                      </span>
+                  <td className="px-4 py-4">
+                    {editingId === emp.id ? (
+                      <input
+                        type="text"
+                        aria-label={`Full name for ${emp.full_name}`}
+                        className="field text-sm font-semibold"
+                        value={editDraft?.fullName ?? ''}
+                        disabled={busyId === emp.id}
+                        onChange={(e) =>
+                          setEditDraft((d) => (d ? { ...d, fullName: e.target.value } : d))
+                        }
+                      />
+                    ) : (
+                      <>
+                        <span className="font-semibold text-ink">
+                          {emp.full_name}
+                        </span>
+                        {isSelf && (
+                          <span className="ml-2 text-xs text-ink-faint">(you)</span>
+                        )}
+                        {!isSelf && emp.role !== 'employee' && (
+                          <span
+                            className="ml-2 text-xs text-ink-faint"
+                            title="Role and access changes for administrators require a super administrator"
+                          >
+                            ({emp.role === 'super_admin' ? 'super admin' : 'administrator'})
+                          </span>
+                        )}
+                      </>
                     )}
                     {editingEmailId === emp.id ? (
                       <div className="mt-1 flex items-center gap-1.5">
@@ -863,38 +925,65 @@ export function EmployeeManager({
                         )}
                       </div>
                     )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {canEditRoleAndBranch ? (
-                      <select
-                        aria-label={`Role for ${emp.full_name}`}
-                        className="field text-sm"
-                        value={emp.role}
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm -ml-2.5"
                         disabled={busyId === emp.id}
-                        onChange={(e) =>
-                          update(emp.id, { role: e.target.value as Role })
-                        }
+                        onClick={() => (editingId === emp.id ? cancelEdit() : startEdit(emp))}
                       >
-                        <option value="employee">Employee</option>
-                        <option value="hr_admin">HR admin</option>
-                        <option value="super_admin">Super admin</option>
-                      </select>
-                    ) : (
-                      <span className="text-ink-muted">
-                        {ROLE_LABELS[emp.role]}
-                      </span>
-                    )}
+                        {editingId === emp.id ? 'Cancel edit' : 'Edit details'}
+                      </button>
+                      {editingId !== emp.id && (
+                        <button
+                          type="button"
+                          className="btn-ghost btn-sm"
+                          onClick={() =>
+                            setScheduleOpenId(scheduleOpenId === emp.id ? null : emp.id)
+                          }
+                        >
+                          {scheduleOpenId === emp.id ? 'Hide schedule & leave' : 'Schedule & leave'}
+                        </button>
+                      )}
+                    </div>
                   </td>
-                  <td className="px-4 py-3">
-                    {canEditRoleAndBranch ? (
-                      <>
+                  <td className="px-4 py-4">
+                    <div className="min-w-[8rem]">
+                      {editingId === emp.id && canEditRoleAndBranch ? (
+                        <select
+                          aria-label={`Role for ${emp.full_name}`}
+                          className="field text-sm"
+                          value={editDraft?.role}
+                          disabled={busyId === emp.id}
+                          onChange={(e) =>
+                            setEditDraft((d) =>
+                              d ? { ...d, role: e.target.value as Role } : d,
+                            )
+                          }
+                        >
+                          <option value="employee">Employee</option>
+                          <option value="hr_admin">HR admin</option>
+                          <option value="super_admin">Super admin</option>
+                        </select>
+                      ) : (
+                        <span className="text-ink-muted">
+                          {ROLE_LABELS[emp.role]}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="min-w-[9rem]">
+                      {editingId === emp.id && canEditRoleAndBranch ? (
                         <select
                           aria-label={`Default branch for ${emp.full_name}`}
                           className="field text-sm"
-                          value={emp.default_branch_id ?? ''}
+                          value={editDraft?.defaultBranchId ?? ''}
                           disabled={busyId === emp.id}
                           onChange={(e) =>
-                            update(emp.id, { defaultBranchId: e.target.value })
+                            setEditDraft((d) =>
+                              d ? { ...d, defaultBranchId: e.target.value } : d,
+                            )
                           }
                         >
                           <option value="">None</option>
@@ -904,151 +993,182 @@ export function EmployeeManager({
                             </option>
                           ))}
                         </select>
-                        <span className="mt-1 block text-xs text-ink-faint">
-                          Informational only
+                      ) : (
+                        <span className="text-ink-muted">
+                          {branches.find((b) => b.id === emp.default_branch_id)?.name ?? 'None'}
                         </span>
-                      </>
-                    ) : (
-                      <span className="text-ink-muted">
-                        {branches.find((b) => b.id === emp.default_branch_id)?.name ?? 'None'}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {WEEKDAY_LABELS.map((label, day) => (
-                        <button
-                          key={day}
-                          type="button"
-                          aria-label={`Toggle ${label} off for ${emp.full_name}`}
-                          disabled={busyId === emp.id}
-                          className={`px-1.5 py-0.5 text-[10px] font-semibold ${
-                            (emp.weekly_off_days ?? []).includes(day)
-                              ? 'bg-brand-primary-soft text-brand-primary'
-                              : 'bg-surface-muted text-ink-muted'
-                          }`}
-                          onClick={() => toggleWeeklyOffDay(emp, day)}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    {emp.weekly_off_days == null ? (
-                      <span className="mt-1 block text-xs text-ink-faint">
-                        Inherited from branch
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn-ghost btn-sm mt-1 -ml-2.5"
-                        disabled={busyId === emp.id}
-                        onClick={() => update(emp.id, { weeklyOffDays: null })}
-                      >
-                        Reset to branch default
-                      </button>
-                    )}
-                    <div className="mt-2 border-t border-line pt-2">
-                      <label
-                        className="block text-[10px] font-semibold uppercase text-ink-faint"
-                        htmlFor={`start-${emp.id}`}
-                      >
-                        Expected start
-                      </label>
-                      <input
-                        id={`start-${emp.id}`}
-                        type="time"
-                        className="field mt-0.5 w-24 text-xs"
-                        defaultValue={emp.expected_start_time?.slice(0, 5) ?? ''}
-                        disabled={busyId === emp.id}
-                        onBlur={(e) => {
-                          const value = e.target.value || null;
-                          const current = emp.expected_start_time?.slice(0, 5) ?? null;
-                          if (value !== current) {
-                            update(emp.id, { expectedStartTime: value });
-                          }
-                        }}
-                      />
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.5}
-                      aria-label={`Leave balance for ${emp.full_name}`}
-                      className="field w-20 text-sm"
-                      defaultValue={emp.leave_balance_days}
-                      disabled={busyId === emp.id}
-                      onBlur={(e) => {
-                        const value = Number(e.target.value);
-                        if (Number.isFinite(value) && value !== emp.leave_balance_days) {
-                          update(emp.id, { leaveBalanceDays: value });
-                        }
-                      }}
-                    />
-                    <span className="mt-1 block text-xs text-ink-faint">days / year</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <button
-                        type="button"
-                        className={`btn-sm ${emp.active ? 'btn-danger' : 'btn-secondary'}`}
-                        disabled={busyId === emp.id || !canToggleActive}
-                        onClick={() => update(emp.id, { active: !emp.active })}
-                      >
-                        {emp.active ? 'Deactivate' : 'Reactivate'}
-                      </button>
-                      <button
-                        type="button"
-                        className={markPresentId === emp.id ? 'btn-ghost btn-sm' : 'btn-secondary btn-sm'}
-                        onClick={() =>
-                          markPresentId === emp.id ? setMarkPresentId(null) : openMarkPresent(emp.id)
-                        }
-                      >
-                        {markPresentId === emp.id ? 'Cancel' : 'Mark present'}
-                      </button>
-                      <button
-                        type="button"
-                        className={markAbsentId === emp.id ? 'btn-ghost btn-sm' : 'btn-secondary btn-sm'}
-                        onClick={() =>
-                          markAbsentId === emp.id ? setMarkAbsentId(null) : openMarkAbsent(emp.id)
-                        }
-                      >
-                        {markAbsentId === emp.id ? 'Cancel' : 'Mark absent'}
-                      </button>
-                      <button
-                        type="button"
-                        className={markLeaveId === emp.id ? 'btn-ghost btn-sm' : 'btn-secondary btn-sm'}
-                        onClick={() =>
-                          markLeaveId === emp.id ? setMarkLeaveId(null) : openMarkLeave(emp.id)
-                        }
-                      >
-                        {markLeaveId === emp.id ? 'Cancel' : 'Mark on leave'}
-                      </button>
-                      <a
-                        href={`/api/hr/employees/${emp.id}/export`}
-                        className="btn-secondary btn-sm"
-                        download
-                      >
-                        Export data
-                      </a>
-                      {isSuperAdmin && !isSelf && (
-                        <button
-                          type="button"
-                          className={deletingId === emp.id ? 'btn-ghost btn-sm' : 'btn-danger btn-sm'}
-                          onClick={() =>
-                            deletingId === emp.id ? setDeletingId(null) : openDelete(emp.id)
-                          }
-                        >
-                          {deletingId === emp.id ? 'Cancel' : 'Delete'}
-                        </button>
                       )}
                     </div>
                   </td>
+                  <td className="px-4 py-4">
+                    <span className={`badge ${emp.active ? 'bg-status-approved-bg text-status-approved' : 'bg-status-declined-bg text-status-declined'}`}>
+                      {emp.active ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-4">
+                    {editingId === emp.id ? (
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          className="btn-ghost btn-sm"
+                          disabled={busyId === emp.id}
+                          onClick={cancelEdit}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-primary btn-sm"
+                          disabled={busyId === emp.id || !editDraft?.fullName.trim()}
+                          onClick={() => saveEdit(emp)}
+                        >
+                          {busyId === emp.id ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          className={`btn-sm ${emp.active ? 'btn-danger' : 'btn-secondary'}`}
+                          disabled={busyId === emp.id || !canToggleActive}
+                          onClick={() => update(emp.id, { active: !emp.active })}
+                        >
+                          {emp.active ? 'Deactivate' : 'Reactivate'}
+                        </button>
+                        <RowActionsMenu
+                          label={emp.full_name}
+                          actions={[
+                            {
+                              label: markPresentId === emp.id ? 'Cancel mark present' : 'Mark present',
+                              onClick: () =>
+                                markPresentId === emp.id
+                                  ? setMarkPresentId(null)
+                                  : openMarkPresent(emp.id),
+                            },
+                            {
+                              label: markAbsentId === emp.id ? 'Cancel mark absent' : 'Mark absent',
+                              onClick: () =>
+                                markAbsentId === emp.id
+                                  ? setMarkAbsentId(null)
+                                  : openMarkAbsent(emp.id),
+                            },
+                            {
+                              label: markLeaveId === emp.id ? 'Cancel mark on leave' : 'Mark on leave',
+                              onClick: () =>
+                                markLeaveId === emp.id ? setMarkLeaveId(null) : openMarkLeave(emp.id),
+                            },
+                            {
+                              label: 'Export data',
+                              href: `/api/hr/employees/${emp.id}/export`,
+                            },
+                            ...(isSuperAdmin && !isSelf
+                              ? [
+                                  {
+                                    label: deletingId === emp.id ? 'Cancel delete' : 'Delete',
+                                    onClick: () =>
+                                      deletingId === emp.id ? setDeletingId(null) : openDelete(emp.id),
+                                    danger: true,
+                                  },
+                                ]
+                              : []),
+                          ]}
+                        />
+                      </div>
+                    )}
+                  </td>
                 </tr>
+                {scheduleOpenId === emp.id && (
+                  <tr className="border-b border-line last:border-0">
+                    <td colSpan={6} className="bg-surface-muted px-4 py-4">
+                      <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
+                        Schedule &amp; leave — {emp.full_name}
+                      </p>
+                      <div className="mt-3 grid gap-6 sm:grid-cols-[1fr_auto_auto]">
+                        <div>
+                          <span className="field-label">Weekly off days</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {WEEKDAY_LABELS.map((label, day) => (
+                              <button
+                                key={day}
+                                type="button"
+                                aria-label={`Toggle ${label} off for ${emp.full_name}`}
+                                disabled={busyId === emp.id}
+                                className={`px-2 py-1 text-xs font-semibold ${
+                                  (emp.weekly_off_days ?? []).includes(day)
+                                    ? 'bg-brand-primary-soft text-brand-primary'
+                                    : 'bg-surface text-ink-muted'
+                                }`}
+                                onClick={() => toggleWeeklyOffDay(emp, day)}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                          {emp.weekly_off_days == null ? (
+                            <span className="mt-1.5 block text-xs text-ink-faint">
+                              Inherited from branch
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn-ghost btn-sm mt-1.5 -ml-2.5"
+                              disabled={busyId === emp.id}
+                              onClick={() => update(emp.id, { weeklyOffDays: null })}
+                            >
+                              Reset to branch default
+                            </button>
+                          )}
+                        </div>
+                        <div>
+                          <label className="field-label" htmlFor={`start-${emp.id}`}>
+                            Expected start
+                          </label>
+                          <input
+                            id={`start-${emp.id}`}
+                            type="time"
+                            className="field w-32 text-sm"
+                            defaultValue={emp.expected_start_time?.slice(0, 5) ?? ''}
+                            disabled={busyId === emp.id}
+                            onBlur={(e) => {
+                              const value = e.target.value || null;
+                              const current = emp.expected_start_time?.slice(0, 5) ?? null;
+                              if (value !== current) {
+                                update(emp.id, { expectedStartTime: value });
+                              }
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label className="field-label" htmlFor={`leave-${emp.id}`}>
+                            Leave balance
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              id={`leave-${emp.id}`}
+                              type="number"
+                              min={0}
+                              step={0.5}
+                              aria-label={`Leave balance for ${emp.full_name}`}
+                              className="field w-20 text-sm"
+                              defaultValue={emp.leave_balance_days}
+                              disabled={busyId === emp.id}
+                              onBlur={(e) => {
+                                const value = Number(e.target.value);
+                                if (Number.isFinite(value) && value !== emp.leave_balance_days) {
+                                  update(emp.id, { leaveBalanceDays: value });
+                                }
+                              }}
+                            />
+                            <span className="text-xs text-ink-faint">days / year</span>
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
                 {markAbsentId === emp.id && (
                   <tr className="border-b border-line last:border-0">
-                    <td colSpan={7} className="bg-surface-muted px-4 py-4">
+                    <td colSpan={6} className="bg-surface-muted px-4 py-4">
                       <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
                         Mark {emp.full_name} absent
                       </p>
@@ -1085,7 +1205,7 @@ export function EmployeeManager({
                 )}
                 {markLeaveId === emp.id && (
                   <tr className="border-b border-line last:border-0">
-                    <td colSpan={7} className="bg-surface-muted px-4 py-4">
+                    <td colSpan={6} className="bg-surface-muted px-4 py-4">
                       <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
                         Record leave for {emp.full_name}
                       </p>
@@ -1162,7 +1282,7 @@ export function EmployeeManager({
                 )}
                 {deletingId === emp.id && (
                   <tr className="border-b border-line last:border-0">
-                    <td colSpan={7} className="bg-status-flagged-bg px-4 py-4">
+                    <td colSpan={6} className="bg-status-flagged-bg px-4 py-4">
                       <p className="text-sm font-bold text-status-flagged">
                         Permanently delete {emp.full_name}?
                       </p>
@@ -1216,7 +1336,7 @@ export function EmployeeManager({
                 )}
                 {markPresentId === emp.id && (
                   <tr className="border-b border-line last:border-0">
-                    <td colSpan={7} className="bg-surface-muted px-4 py-4">
+                    <td colSpan={6} className="bg-surface-muted px-4 py-4">
                       <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
                         Mark {emp.full_name} present
                       </p>

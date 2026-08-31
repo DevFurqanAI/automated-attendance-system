@@ -268,6 +268,14 @@ export async function PATCH(request: Request) {
         : null;
   }
 
+  if (body.fullName !== undefined) {
+    const fullName = typeof body.fullName === 'string' ? body.fullName.trim() : '';
+    if (!fullName) {
+      return NextResponse.json({ error: 'Full name cannot be empty.' }, { status: 400 });
+    }
+    update.full_name = fullName;
+  }
+
   // Personal weekly-off override — see private.is_working_day() in
   // 20260824101000_schedule_holidays.sql. `null` clears the override, falling
   // back to the employee's branch (or Sunday, if they have none — see
@@ -388,6 +396,16 @@ export async function PATCH(request: Request) {
       entityId: id,
       subjectId: id,
       detail: { from: target.default_branch_id, to: update.default_branch_id },
+    });
+  }
+
+  if (update.full_name !== undefined && update.full_name !== target.full_name) {
+    await recordAudit(admin, hr, {
+      action: 'employee.name_change',
+      entityType: 'employee',
+      entityId: id,
+      subjectId: id,
+      detail: { from: target.full_name, to: update.full_name },
     });
   }
 
