@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { PasswordField } from '@/components/PasswordField';
 
 /** Matches the Supabase project's minimum; the server enforces it regardless. */
 const MIN_LENGTH = 8;
@@ -53,40 +54,26 @@ export function SetPasswordForm() {
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
-      <div>
-        <label htmlFor="password" className="field-label">
-          New password
-        </label>
-        <input
-          id="password"
-          type="password"
-          className="field"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="new-password"
-          minLength={MIN_LENGTH}
-          required
-          autoFocus
-        />
-        <p className="mt-1.5 text-xs text-ink-faint">
-          At least {MIN_LENGTH} characters.
-        </p>
-      </div>
+      <PasswordField
+        id="password"
+        label="New password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        autoComplete="new-password"
+        minLength={MIN_LENGTH}
+        required
+        autoFocus
+        hint={`At least ${MIN_LENGTH} characters.`}
+      />
 
-      <div>
-        <label htmlFor="confirm" className="field-label">
-          Repeat password
-        </label>
-        <input
-          id="confirm"
-          type="password"
-          className="field"
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          autoComplete="new-password"
-          required
-        />
-      </div>
+      <PasswordField
+        id="confirm"
+        label="Repeat password"
+        value={confirm}
+        onChange={(e) => setConfirm(e.target.value)}
+        autoComplete="new-password"
+        required
+      />
 
       {error && (
         <p
