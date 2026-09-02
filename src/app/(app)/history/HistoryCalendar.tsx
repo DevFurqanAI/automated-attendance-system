@@ -4,6 +4,10 @@ import { useState } from 'react';
 import { MonthGrid } from '@/components/MonthGrid';
 import { formatDate } from '@/lib/format';
 import { ATTENDANCE_SERIES } from '@/lib/attendanceColors';
+import {
+  isOffDay,
+  type CalendarDayKind,
+} from '@/lib/attendance/workingDay';
 import type { DayItem, DayStatus } from '@/lib/attendance/dayStatus';
 
 const STATUS_COLOR: Record<DayStatus, string> = {
@@ -24,12 +28,22 @@ const STATUS_LABEL: Record<DayStatus, string> = {
   declined: 'Declined',
 };
 
+// Distinct from `pending`'s var(--color-line-strong) so the two read apart
+// at a glance: a day off is expected, a pending record is not.
+const OFF_COLOR = 'var(--color-ink-faint)';
+
 export function HistoryCalendar({
   initialMonth,
   daysByDate,
+  offDays,
+  calendarKindByDate,
 }: {
   initialMonth: string;
   daysByDate: Record<string, { status: DayStatus; items: DayItem[] }>;
+  /** Weekdays (0=Sunday..6=Saturday) this employee is normally off. */
+  offDays: number[];
+  /** date ("YYYY-MM-DD") -> declared holiday/mandatory-workday override. */
+  calendarKindByDate: Record<string, CalendarDayKind>;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const selectedDay = selected ? daysByDate[selected] : null;
@@ -40,6 +54,10 @@ export function HistoryCalendar({
         initialMonth={initialMonth}
         renderDay={(date, inMonth) => {
           const day = daysByDate[date];
+          // A record for the day always wins — an approved check-in on a
+          // declared holiday is still shown as Present, not overwritten.
+          const off =
+            !day && isOffDay(date, offDays, calendarKindByDate[date] ?? null);
           const isSelected = selected === date;
           return (
             <button
@@ -52,8 +70,10 @@ export function HistoryCalendar({
               style={{
                 backgroundColor: day
                   ? STATUS_COLOR[day.status]
-                  : 'var(--color-surface-muted)',
-                color: day ? '#fff' : 'var(--color-ink-faint)',
+                  : off
+                    ? OFF_COLOR
+                    : 'var(--color-surface-muted)',
+                color: day || off ? '#fff' : 'var(--color-ink-faint)',
               }}
             >
               {Number(date.slice(8, 10))}
@@ -73,6 +93,14 @@ export function HistoryCalendar({
             {STATUS_LABEL[s]}
           </span>
         ))}
+        <span className="flex items-center gap-1.5">
+          <span
+            aria-hidden
+            className="inline-block h-2.5 w-2.5 rounded-sm"
+            style={{ backgroundColor: OFF_COLOR }}
+          />
+          Off / holiday
+        </span>
       </div>
 
       {selected && (
@@ -88,6 +116,10 @@ export function HistoryCalendar({
                 </li>
               ))}
             </ul>
+          ) : isOffDay(selected, offDays, calendarKindByDate[selected] ?? null) ? (
+            <p className="mt-1.5 text-sm text-ink-muted">
+              {calendarKindByDate[selected] === 'holiday' ? 'Holiday' : 'Day off'}.
+            </p>
           ) : (
             <p className="mt-1.5 text-sm text-ink-muted">
               No record for this day.

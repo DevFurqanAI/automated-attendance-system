@@ -3,6 +3,10 @@ import {
   lateMinutes,
   resolveExpectedStartTime,
 } from '@/lib/attendance/lateness';
+import {
+  buildCalendarKindByDate,
+  resolveOffDays,
+} from '@/lib/attendance/workingDay';
 import { StatusBadge } from '@/components/StatusBadge';
 import {
   formatDate,
@@ -45,6 +49,7 @@ export default async function HistoryPage() {
     { data: absenceRows },
     { data: openDisputes },
     { data: branchStarts },
+    { data: calendarDays },
   ] = await Promise.all([
     supabase
       .from('attendance')
@@ -77,13 +82,38 @@ export default async function HistoryPage() {
       .returns<{ attendance_id: string }[]>(),
     supabase
       .from('branches_public')
-      .select('id, expected_start_time')
-      .returns<{ id: string; expected_start_time: string | null }[]>(),
+      .select('id, expected_start_time, weekly_off_days')
+      .returns<{ id: string; expected_start_time: string | null; weekly_off_days: number[] }[]>(),
+    // Off/holiday overlay for the calendar view: every company-wide entry
+    // plus this employee's own branch's, so a branch-specific override for
+    // the same date is still resolvable client-side (see buildCalendarKindByDate).
+    supabase
+      .from('branch_calendar_days')
+      .select('date, kind, branch_id')
+      .or(
+        user.employee.default_branch_id
+          ? `branch_id.is.null,branch_id.eq.${user.employee.default_branch_id}`
+          : 'branch_id.is.null',
+      )
+      .returns<{ date: string; kind: 'holiday' | 'mandatory_workday'; branch_id: string | null }[]>(),
   ]);
 
   const disputedIds = new Set((openDisputes ?? []).map((d) => d.attendance_id));
   const branchStartById = new Map(
     (branchStarts ?? []).map((b) => [b.id, b.expected_start_time]),
+  );
+  const branchOffDaysById = new Map(
+    (branchStarts ?? []).map((b) => [b.id, b.weekly_off_days]),
+  );
+  const offDays = resolveOffDays(
+    user.employee.weekly_off_days,
+    user.employee.default_branch_id
+      ? (branchOffDaysById.get(user.employee.default_branch_id) ?? null)
+      : null,
+  );
+  const calendarKindByDate = buildCalendarKindByDate(
+    calendarDays ?? [],
+    user.employee.default_branch_id,
   );
 
   const rows = data ?? [];
@@ -295,6 +325,8 @@ export default async function HistoryPage() {
             <HistoryCalendar
               initialMonth={latestDate}
               daysByDate={daysByDate}
+              offDays={offDays}
+              calendarKindByDate={Object.fromEntries(calendarKindByDate)}
             />
           }
         />

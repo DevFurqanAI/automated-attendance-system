@@ -126,6 +126,8 @@ export interface AttendanceSummaryRow {
   absent: number;
   leave: number;
   holidayOrOff: number;
+  /** Distinct days this employee's check-in was past their expected start time + grace. */
+  late: number;
 }
 
 /**
@@ -140,15 +142,26 @@ export async function loadAttendanceSummary(
   supabase: SupabaseClient,
   filters: ReportFilters,
 ): Promise<AttendanceSummaryRow[]> {
-  let employeeQuery = supabase.from('employees').select('id, full_name').eq('active', true);
+  let employeeQuery = supabase
+    .from('employees')
+    .select('id, full_name, expected_start_time')
+    .eq('active', true);
 
   if (filters.employeeId) employeeQuery = employeeQuery.eq('id', filters.employeeId);
   if (filters.branchId) employeeQuery = employeeQuery.eq('default_branch_id', filters.branchId);
   if (filters.employeeIds) employeeQuery = employeeQuery.in('id', filters.employeeIds);
   const { data: employees, error: employeesError } = await employeeQuery.returns<
-    { id: string; full_name: string }[]
+    { id: string; full_name: string; expected_start_time: string | null }[]
   >();
   if (employeesError) throw new Error(employeesError.message);
+
+  const { data: branchStarts } = await supabase
+    .from('branches_public')
+    .select('id, expected_start_time')
+    .returns<{ id: string; expected_start_time: string | null }[]>();
+  const branchStartById = new Map(
+    (branchStarts ?? []).map((b) => [b.id, b.expected_start_time]),
+  );
 
   const fromDate = filters.from.slice(0, 10);
   const toDate = filters.to.slice(0, 10);
@@ -167,12 +180,12 @@ export async function loadAttendanceSummary(
     const [{ data: attendanceDates }, { data: leaveRows }, { data: absenceRows }] = await Promise.all([
       supabase
         .from('attendance')
-        .select('check_in_time')
+        .select('check_in_time, branch_id')
         .eq('employee_id', employee.id)
         .gte('check_in_time', `${fromDate}T00:00:00Z`)
         .lte('check_in_time', `${toDate}T23:59:59Z`)
         .not('check_in_time', 'is', null)
-        .returns<{ check_in_time: string }[]>(),
+        .returns<{ check_in_time: string; branch_id: string | null }[]>(),
       supabase
         .from('leave_requests')
         .select('from_date, to_date')
@@ -193,6 +206,19 @@ export async function loadAttendanceSummary(
     const presentDates = new Set(
       (attendanceDates ?? []).map((a) => a.check_in_time.slice(0, 10)),
     );
+    // Dedupe by day: a day counts as late once even if it somehow carries
+    // more than one approved check-in.
+    const lateDates = new Set<string>();
+    for (const a of attendanceDates ?? []) {
+      const late = lateMinutes(
+        a.check_in_time,
+        resolveExpectedStartTime(
+          employee.expected_start_time,
+          a.branch_id ? (branchStartById.get(a.branch_id) ?? null) : null,
+        ),
+      );
+      if (late != null) lateDates.add(a.check_in_time.slice(0, 10));
+    }
     const leaveDates = new Set(
       dates.filter((date) =>
         (leaveRows ?? []).some((l) => date >= l.from_date && date <= l.to_date),
@@ -227,6 +253,7 @@ export async function loadAttendanceSummary(
       absent,
       leave,
       holidayOrOff,
+      late: lateDates.size,
     });
   }
 

@@ -104,6 +104,7 @@ export default async function ReportsPage({
                 <Th>Absent</Th>
                 <Th>Leave</Th>
                 <Th>Off / holiday</Th>
+                <Th>Late</Th>
               </tr>
             </thead>
             <tbody>
@@ -114,6 +115,15 @@ export default async function ReportsPage({
                   <td className="px-4 py-3 tabular-nums">{row.absent}</td>
                   <td className="px-4 py-3 tabular-nums">{row.leave}</td>
                   <td className="px-4 py-3 tabular-nums">{row.holidayOrOff}</td>
+                  <td className="px-4 py-3 tabular-nums">
+                    {row.late > 0 ? (
+                      <span className="badge bg-status-flagged-bg text-status-flagged">
+                        {row.late}
+                      </span>
+                    ) : (
+                      row.late
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
