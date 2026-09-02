@@ -13,6 +13,12 @@ import type { NextConfig } from 'next';
  * 'unsafe-eval' is dev-only — the Turbopack dev runtime needs it, production
  * does not.
  *
+ * 'wasm-unsafe-eval' is always on: QrScanner falls back to the
+ * `barcode-detector` ponyfill (zxing-wasm) on browsers without a native
+ * BarcodeDetector, and compiling that WASM module is blocked without it —
+ * separate from, and much narrower than, 'unsafe-eval' (it permits
+ * WebAssembly compilation only, not arbitrary string-to-JS).
+ *
  * `connect-src` must include Supabase over both https and wss: the browser
  * client talks to PostgREST and Auth directly, and the HR dashboard holds a
  * realtime websocket open for the review queue.
@@ -20,7 +26,7 @@ import type { NextConfig } from 'next';
 function contentSecurityPolicy(isDev: boolean): string {
   return [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
+    `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${isDev ? " 'unsafe-eval'" : ''}`,
     // Tailwind ships as a stylesheet, but Next still inlines critical CSS.
     "style-src 'self' 'unsafe-inline'",
     // data: for the generated QR PNGs, blob: for the camera frames the scanner

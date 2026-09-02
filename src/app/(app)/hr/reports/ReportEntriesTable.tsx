@@ -84,6 +84,7 @@ export function ReportEntriesTable({
             <Th>Check in</Th>
             <Th>Check out</Th>
             <Th>Hours</Th>
+            <Th>Late</Th>
             <Th>Method</Th>
             <Th>&nbsp;</Th>
           </tr>
@@ -100,6 +101,15 @@ export function ReportEntriesTable({
                 <td className="px-4 py-3">{formatDateTime(e.checkInTime)}</td>
                 <td className="px-4 py-3">{formatDateTime(e.checkOutTime)}</td>
                 <td className="px-4 py-3 tabular-nums">{formatDuration(e.hours)}</td>
+                <td className="px-4 py-3">
+                  {e.lateMinutes != null ? (
+                    <span className="badge bg-status-flagged-bg text-status-flagged">
+                      {e.lateMinutes}m
+                    </span>
+                  ) : (
+                    <span className="text-ink-faint">—</span>
+                  )}
+                </td>
                 <td className="px-4 py-3">{METHOD_LABELS[e.method]}</td>
                 <td className="px-4 py-3">
                   <button
@@ -113,7 +123,7 @@ export function ReportEntriesTable({
               </tr>
               {editingId === e.id && (
                 <tr className="border-b border-line last:border-0">
-                  <td colSpan={7} className="bg-surface-muted px-4 py-4">
+                  <td colSpan={8} className="bg-surface-muted px-4 py-4">
                     <p className="text-xs font-bold uppercase tracking-wide text-ink-muted">
                       Correct this record
                     </p>

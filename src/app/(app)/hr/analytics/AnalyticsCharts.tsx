@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { formatDate } from '@/lib/format';
 import { ATTENDANCE_SERIES as SERIES } from '@/lib/attendanceColors';
 import { MonthGrid } from '@/components/MonthGrid';
+import { ChartTooltip, useChartTooltip } from '@/components/ChartTooltip';
 import type { BranchHours, DailyTrendPoint } from '@/lib/attendance/report';
 
 const CHART_HEIGHT = 200;
@@ -11,6 +12,7 @@ const BAR_GAP_PX = 2;
 
 export function DailyTrendChart({ points }: { points: DailyTrendPoint[] }) {
   const [view, setView] = useState<'bar' | 'calendar'>('bar');
+  const { tooltip, showTooltip, hideTooltip } = useChartTooltip();
   const max = Math.max(1, ...points.map((p) => p.present + p.absent + p.leave));
   const barWidth = 100 / points.length;
   // Thin every-Nth label so dates never collide, however wide the range.
@@ -102,11 +104,28 @@ export function DailyTrendChart({ points }: { points: DailyTrendPoint[] }) {
                         height={h}
                         rx="0.6"
                         fill={seg.color}
-                      >
-                        <title>
-                          {formatDate(p.date)} — {seg.key}: {seg.value}
-                        </title>
-                      </rect>
+                        onMouseEnter={(e) =>
+                          showTooltip(
+                            e,
+                            <>
+                              {formatDate(p.date)} —{' '}
+                              <span className="capitalize">{seg.key}</span>:{' '}
+                              {seg.value}
+                            </>,
+                          )
+                        }
+                        onMouseMove={(e) =>
+                          showTooltip(
+                            e,
+                            <>
+                              {formatDate(p.date)} —{' '}
+                              <span className="capitalize">{seg.key}</span>:{' '}
+                              {seg.value}
+                            </>,
+                          )
+                        }
+                        onMouseLeave={hideTooltip}
+                      />
                     );
                   })}
                   {total === 0 && (
@@ -145,6 +164,8 @@ export function DailyTrendChart({ points }: { points: DailyTrendPoint[] }) {
           </div>
         </>
       )}
+
+      <ChartTooltip tooltip={tooltip} />
     </div>
   );
 }
@@ -180,6 +201,7 @@ function TrendCalendar({ points }: { points: DailyTrendPoint[] }) {
   const byDate = new Map(points.map((p) => [p.date, p]));
   const initialMonth = points[points.length - 1].date.slice(0, 7);
   const max = Math.max(1, ...points.map((p) => p.present + p.absent + p.leave));
+  const { tooltip, showTooltip, hideTooltip } = useChartTooltip();
 
   return (
     <div className="mt-3">
@@ -197,6 +219,12 @@ function TrendCalendar({ points }: { points: DailyTrendPoint[] }) {
               : (['present', 'absent', 'leave'] as const).reduce((a, b) =>
                   p[b] > p[a] ? b : a,
                 );
+          const content = (
+            <>
+              {formatDate(date)} — present: {p.present}, absent: {p.absent},
+              leave: {p.leave}
+            </>
+          );
 
           return (
             <div
@@ -208,19 +236,23 @@ function TrendCalendar({ points }: { points: DailyTrendPoint[] }) {
                 opacity: dominant ? Math.max(0.25, total / max) : 1,
                 color: dominant ? '#fff' : 'var(--color-ink-faint)',
               }}
-              title={`${formatDate(date)} — present: ${p.present}, absent: ${p.absent}, leave: ${p.leave}`}
+              onMouseEnter={(e) => showTooltip(e, content)}
+              onMouseMove={(e) => showTooltip(e, content)}
+              onMouseLeave={hideTooltip}
             >
               {Number(date.slice(8, 10))}
             </div>
           );
         }}
       />
+      <ChartTooltip tooltip={tooltip} />
     </div>
   );
 }
 
 export function BranchHoursChart({ rows }: { rows: BranchHours[] }) {
   const max = Math.max(1, ...rows.map((r) => r.hours));
+  const { tooltip, showTooltip, hideTooltip } = useChartTooltip();
 
   return (
     <div className="card p-4">
@@ -238,7 +270,9 @@ export function BranchHoursChart({ rows }: { rows: BranchHours[] }) {
             <li key={r.branchName} className="flex items-center gap-3">
               <span
                 className="w-32 shrink-0 truncate text-sm text-ink"
-                title={r.branchName}
+                onMouseEnter={(e) => showTooltip(e, r.branchName)}
+                onMouseMove={(e) => showTooltip(e, r.branchName)}
+                onMouseLeave={hideTooltip}
               >
                 {r.branchName}
               </span>
@@ -249,7 +283,13 @@ export function BranchHoursChart({ rows }: { rows: BranchHours[] }) {
                     width: `${Math.max(2, (r.hours / max) * 100)}%`,
                     backgroundColor: SERIES.present,
                   }}
-                  title={`${r.branchName}: ${r.hours.toFixed(1)} h`}
+                  onMouseEnter={(e) =>
+                    showTooltip(e, `${r.branchName}: ${r.hours.toFixed(1)} h`)
+                  }
+                  onMouseMove={(e) =>
+                    showTooltip(e, `${r.branchName}: ${r.hours.toFixed(1)} h`)
+                  }
+                  onMouseLeave={hideTooltip}
                 />
               </span>
               <span className="w-14 shrink-0 text-right text-sm tabular-nums text-ink-muted">
@@ -259,6 +299,8 @@ export function BranchHoursChart({ rows }: { rows: BranchHours[] }) {
           ))}
         </ul>
       )}
+
+      <ChartTooltip tooltip={tooltip} />
     </div>
   );
 }

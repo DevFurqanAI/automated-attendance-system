@@ -1,6 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hoursWorked } from '@/lib/format';
+import { lateMinutes, resolveExpectedStartTime } from '@/lib/attendance/lateness';
 import { METHOD_LABELS, type AttendanceRow } from '@/lib/types';
+
+/** loadReport's join shape, widened with the columns lateMinutes() needs. */
+type ReportRow = AttendanceRow & {
+  employees: (AttendanceRow['employees'] & { expected_start_time: string | null }) | null;
+  branches: (AttendanceRow['branches'] & { expected_start_time: string | null }) | null;
+};
 
 /**
  * Attendance reporting (spec §7.6).
@@ -37,6 +44,8 @@ export interface ReportEntry {
   /** Set only when the shift was closed at a different branch. */
   checkOutBranchName?: string | null;
   remoteReason: string | null;
+  /** Minutes late against the resolved expected start time, or null (on time / no expectation set). */
+  lateMinutes: number | null;
 }
 
 export interface ReportTotals {
@@ -53,8 +62,8 @@ export async function loadReport(
     .from('attendance')
     .select(
       `id, method, check_in_time, check_out_time, remote_reason,
-       employees:employee_id ( id, full_name, email ),
-       branches:branch_id ( id, name ),
+       employees:employee_id ( id, full_name, email, expected_start_time ),
+       branches:branch_id ( id, name, expected_start_time ),
        checkout_branch:check_out_branch_id ( id, name )`,
     )
     .eq('status', 'approved')
@@ -71,7 +80,7 @@ export async function loadReport(
   const { data, error } = await query;
   if (error) throw new Error(error.message);
 
-  const rows = (data ?? []) as unknown as AttendanceRow[];
+  const rows = (data ?? []) as unknown as ReportRow[];
 
   const entries: ReportEntry[] = rows.map((row) => ({
     id: row.id,
@@ -90,6 +99,15 @@ export async function loadReport(
     checkOutTime: row.check_out_time,
     hours: hoursWorked(row.check_in_time, row.check_out_time),
     remoteReason: row.remote_reason,
+    lateMinutes: row.check_in_time
+      ? lateMinutes(
+          row.check_in_time,
+          resolveExpectedStartTime(
+            row.employees?.expected_start_time ?? null,
+            row.branches?.expected_start_time ?? null,
+          ),
+        )
+      : null,
   }));
 
   const totals: ReportTotals = {
@@ -232,6 +250,7 @@ export function toCsv(entries: ReportEntry[]): string {
     'Check in',
     'Check out',
     'Hours worked',
+    'Late (min)',
     'Remote reason',
   ];
 
@@ -248,6 +267,7 @@ export function toCsv(entries: ReportEntry[]): string {
         e.checkInTime ?? '',
         e.checkOutTime ?? '',
         e.hours == null ? '' : e.hours.toFixed(2),
+        e.lateMinutes == null ? '' : String(e.lateMinutes),
         e.remoteReason ?? '',
       ]
         .map(csvCell)

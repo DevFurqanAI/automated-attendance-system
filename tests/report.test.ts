@@ -12,6 +12,7 @@ const entry = (over: Partial<ReportEntry> = {}): ReportEntry => ({
   checkOutTime: '2026-08-22T17:30:00.000Z',
   hours: 8.5,
   remoteReason: null,
+  lateMinutes: null,
   ...over,
 });
 
@@ -22,7 +23,7 @@ describe('toCsv', () => {
 
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBe(
-      'Employee,Email,Branch,Checked out at,Method,Check in,Check out,Hours worked,Remote reason',
+      'Employee,Email,Branch,Checked out at,Method,Check in,Check out,Hours worked,Late (min),Remote reason',
     );
     expect(lines[1]).toContain('Ada Lovelace');
     expect(lines[1]).toContain('8.50');
@@ -34,7 +35,7 @@ describe('toCsv', () => {
     const row = toCsv([entry()]).trim().split('\r\n')[1];
     expect(row).toBe(
       'Ada Lovelace,ada@example.com,Downtown Branch,,QR + GPS,' +
-        '2026-08-22T09:00:00.000Z,2026-08-22T17:30:00.000Z,8.50,',
+        '2026-08-22T09:00:00.000Z,2026-08-22T17:30:00.000Z,8.50,,',
     );
   });
 
@@ -77,8 +78,8 @@ describe('toCsv', () => {
     const csv = toCsv([entry({ checkOutTime: null, hours: null })]);
     const row = csv.trim().split('\r\n')[1];
 
-    // Trailing empty fields for check-out, hours, and reason.
-    expect(row.endsWith(',,,')).toBe(true);
+    // Trailing empty fields for check-out, hours, late, and reason.
+    expect(row.endsWith(',,,,')).toBe(true);
   });
 
   it('labels an approved remote entry distinctly from a QR one', () => {
