@@ -1,57 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-/**
- * Camera QR scanner.
- *
- * - Uses native BarcodeDetector when available.
- * - Falls back to barcode-detector/ponyfill on unsupported browsers.
- * - Captures video frames into a canvas before scanning.
- *   This is more reliable on iOS Safari.
- */
-
-type Detector = {
-  detect: (
-    source: CanvasImageSource,
-  ) => Promise<{ rawValue: string }[]>;
-};
-
-const SCAN_INTERVAL_MS = 250;
-const MAX_SCAN_WIDTH = 1280;
-
-async function createDetector(): Promise<Detector> {
-  const NativeBarcodeDetector = (
-    globalThis as unknown as {
-      BarcodeDetector?: new (options: {
-        formats: string[];
-      }) => Detector;
-    }
-  ).BarcodeDetector;
-
-  // Try native BarcodeDetector first.
-  if (NativeBarcodeDetector) {
-    try {
-      return new NativeBarcodeDetector({
-        formats: ['qr_code'],
-      });
-    } catch (error) {
-      console.warn(
-        'Native BarcodeDetector failed. Falling back to ponyfill.',
-        error,
-      );
-    }
-  }
-
-  // Fallback for Safari/iPhone and other unsupported browsers.
-  const { BarcodeDetector } = await import(
-    'barcode-detector/ponyfill'
-  );
-
-  return new BarcodeDetector({
-    formats: ['qr_code'],
-  }) as unknown as Detector;
-}
+import {
+  BrowserQRCodeReader,
+  IScannerControls,
+} from '@zxing/browser';
 
 export function QrScanner({
   onScan,
@@ -63,17 +16,22 @@ export function QrScanner({
   paused?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+
+  const controlsRef = useRef<IScannerControls | null>(null);
+  const readerRef = useRef<BrowserQRCodeReader | null>(null);
 
   const onScanRef = useRef(onScan);
   const pausedRef = useRef(paused);
+
+  const lastScannedValueRef = useRef<string | null>(null);
+  const lastScannedTimeRef = useRef<number>(0);
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * Keep callback references fresh without restarting the camera.
+   * Keep callback references updated without restarting
+   * the camera every time the parent component renders.
    */
   useEffect(() => {
     onScanRef.current = onScan;
@@ -86,68 +44,79 @@ export function QrScanner({
   const reportError = useCallback(
     (message: string) => {
       setError(message);
-      onError?.(message);
+
+      if (onError) {
+        onError(message);
+      }
     },
     [onError],
   );
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let scanning = false;
 
-    /**
-     * Stop the current camera stream.
-     */
-    const stopCamera = () => {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-
-      const stream = streamRef.current;
-
-      if (stream) {
-        for (const track of stream.getTracks()) {
-          track.stop();
-        }
-      }
-
-      streamRef.current = null;
-    };
-
-    /**
-     * Start camera and scanner.
-     */
     async function startScanner() {
       setError(null);
       setReady(false);
 
       /**
-       * Camera APIs require HTTPS on real devices.
+       * Camera APIs require a secure context on mobile.
        */
-      if (!navigator.mediaDevices?.getUserMedia) {
+      if (
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia
+      ) {
         reportError(
-          'This browser cannot access the camera. Make sure the website is opened using HTTPS.',
+          'This browser cannot access the camera. Please use a supported browser and make sure the website is opened using HTTPS.',
         );
+
         return;
       }
 
-      let stream: MediaStream;
+      const video = videoRef.current;
+
+      if (!video) {
+        reportError(
+          'Could not initialize the camera preview.',
+        );
+
+        return;
+      }
+
+      /**
+       * Important for iPhone/iPad Safari and Chrome.
+       */
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('webkit-playsinline', 'true');
+
+      video.playsInline = true;
+      video.muted = true;
+      video.autoplay = true;
 
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        /**
+         * BrowserQRCodeReader is dedicated specifically
+         * to QR codes.
+         */
+        const reader = new BrowserQRCodeReader(undefined, {
+          delayBetweenScanAttempts: 150,
+          delayBetweenScanSuccess: 500,
+        });
+
+        readerRef.current = reader;
+
+        /**
+         * Prefer the rear/environment camera.
+         *
+         * Don't force exact device IDs because Safari handles
+         * camera identifiers differently from Android Chrome.
+         */
+        const constraints: MediaStreamConstraints = {
           video: {
-            /**
-             * Prefer the rear camera.
-             */
             facingMode: {
               ideal: 'environment',
             },
 
-            /**
-             * Request enough resolution for detailed QR codes.
-             */
             width: {
               ideal: 1920,
             },
@@ -158,350 +127,229 @@ export function QrScanner({
           },
 
           audio: false,
-        });
-      } catch (err) {
-        console.error('getUserMedia failed:', err);
+        };
 
-        const name = (err as DOMException)?.name;
+        const controls =
+          await reader.decodeFromConstraints(
+            constraints,
+            video,
+            (result) => {
+              if (cancelled) {
+                return;
+              }
 
-        if (name === 'NotAllowedError') {
-          reportError(
-            'Camera permission was denied. Allow camera access in your browser settings and try again.',
-          );
-          return;
-        }
+              /**
+               * "No QR found in this particular frame" is normal,
+               * so we don't show that as an error.
+               */
+              if (!result) {
+                return;
+              }
 
-        if (name === 'NotFoundError') {
-          reportError(
-            'No camera was found on this device.',
-          );
-          return;
-        }
+              if (pausedRef.current) {
+                return;
+              }
 
-        if (name === 'NotReadableError') {
-          reportError(
-            'The camera is currently unavailable. Close other apps using the camera and try again.',
-          );
-          return;
-        }
+              const value = result.getText();
 
-        if (name === 'OverconstrainedError') {
-          reportError(
-            'The requested camera settings are not supported on this device.',
-          );
-          return;
-        }
+              if (!value) {
+                return;
+              }
 
-        reportError(
-          'Could not start the camera. Please check your camera permissions and try again.',
-        );
+              /**
+               * Prevent continuously sending the same QR to the
+               * backend dozens of times while the camera remains
+               * pointed at it.
+               */
+              const now = Date.now();
 
-        return;
-      }
+              const sameValue =
+                lastScannedValueRef.current === value;
 
-      /**
-       * Component may have unmounted while permission dialog was open.
-       */
-      if (cancelled) {
-        for (const track of stream.getTracks()) {
-          track.stop();
-        }
+              const recentlyScanned =
+                now - lastScannedTimeRef.current < 1500;
 
-        return;
-      }
+              if (sameValue && recentlyScanned) {
+                return;
+              }
 
-      streamRef.current = stream;
+              lastScannedValueRef.current = value;
+              lastScannedTimeRef.current = now;
 
-      const video = videoRef.current;
-
-      if (!video) {
-        stopCamera();
-        return;
-      }
-
-      /**
-       * Important for iOS Safari.
-       */
-      video.muted = true;
-      video.autoplay = true;
-      video.playsInline = true;
-
-      video.setAttribute('playsinline', 'true');
-      video.setAttribute('webkit-playsinline', 'true');
-
-      video.srcObject = stream;
-
-      /**
-       * Wait for video metadata before scanning.
-       */
-      try {
-        if (
-          video.readyState <
-            HTMLMediaElement.HAVE_METADATA ||
-          video.videoWidth === 0 ||
-          video.videoHeight === 0
-        ) {
-          await new Promise<void>(
-            (resolve, reject) => {
-              const handleLoadedMetadata = () => {
-                cleanup();
-                resolve();
-              };
-
-              const handleError = () => {
-                cleanup();
-                reject(
-                  new Error(
-                    'Video metadata could not be loaded.',
-                  ),
-                );
-              };
-
-              const cleanup = () => {
-                video.removeEventListener(
-                  'loadedmetadata',
-                  handleLoadedMetadata,
-                );
-
-                video.removeEventListener(
-                  'error',
-                  handleError,
-                );
-              };
-
-              video.addEventListener(
-                'loadedmetadata',
-                handleLoadedMetadata,
-                {
-                  once: true,
-                },
+              console.log(
+                'QR code detected:',
+                value,
               );
 
-              video.addEventListener(
-                'error',
-                handleError,
-                {
-                  once: true,
-                },
-              );
+              onScanRef.current(value);
             },
           );
+
+        if (cancelled) {
+          controls.stop();
+          return;
         }
 
-        await video.play();
+        controlsRef.current = controls;
+
+        /**
+         * Wait until Safari actually has camera frames.
+         */
+        const waitForVideo = () =>
+          new Promise<void>((resolve) => {
+            if (
+              video.readyState >=
+                HTMLMediaElement.HAVE_CURRENT_DATA &&
+              video.videoWidth > 0 &&
+              video.videoHeight > 0
+            ) {
+              resolve();
+              return;
+            }
+
+            const handler = () => {
+              if (
+                video.videoWidth > 0 &&
+                video.videoHeight > 0
+              ) {
+                video.removeEventListener(
+                  'loadeddata',
+                  handler,
+                );
+
+                video.removeEventListener(
+                  'playing',
+                  handler,
+                );
+
+                resolve();
+              }
+            };
+
+            video.addEventListener(
+              'loadeddata',
+              handler,
+            );
+
+            video.addEventListener(
+              'playing',
+              handler,
+            );
+
+            /**
+             * Don't keep the UI stuck on "Starting camera"
+             * indefinitely if Safari doesn't fire the event
+             * exactly as expected.
+             */
+            setTimeout(() => {
+              resolve();
+            }, 1500);
+          });
+
+        await waitForVideo();
+
+        if (cancelled) {
+          controls.stop();
+          return;
+        }
+
+        console.log('Camera started:', {
+          width: video.videoWidth,
+          height: video.videoHeight,
+          readyState: video.readyState,
+        });
+
+        setReady(true);
       } catch (err) {
         console.error(
-          'Could not start video preview:',
+          'QR scanner initialization failed:',
           err,
         );
 
-        stopCamera();
-
-        reportError(
-          'Could not start the camera preview. On iPhone, make sure camera permission is enabled for this website.',
-        );
-
-        return;
-      }
-
-      if (cancelled) {
-        stopCamera();
-        return;
-      }
-
-      console.log('Camera started:', {
-        width: video.videoWidth,
-        height: video.videoHeight,
-        readyState: video.readyState,
-      });
-
-      /**
-       * Create barcode detector.
-       */
-      let detector: Detector;
-
-      try {
-        detector = await createDetector();
-      } catch (err) {
-        console.error(
-          'Could not create QR detector:',
-          err,
-        );
-
-        stopCamera();
-
-        reportError(
-          'QR scanning is not supported in this browser.',
-        );
-
-        return;
-      }
-
-      if (cancelled) {
-        stopCamera();
-        return;
-      }
-
-      setReady(true);
-
-      /**
-       * Scan one frame.
-       */
-      const scanFrame = async () => {
         if (cancelled) {
           return;
         }
 
-        /**
-         * Prevent overlapping detector calls.
-         *
-         * Some iPhones can take longer than 250ms to decode a
-         * frame, so we don't want multiple scans running at once.
-         */
-        if (scanning) {
-          timer = setTimeout(
-            scanFrame,
-            SCAN_INTERVAL_MS,
+        const domError = err as DOMException;
+
+        if (
+          domError?.name === 'NotAllowedError' ||
+          domError?.name === 'PermissionDeniedError'
+        ) {
+          reportError(
+            'Camera permission was denied. Please allow camera access for this website in your browser settings and try again.',
           );
+
           return;
         }
 
-        if (pausedRef.current) {
-          timer = setTimeout(
-            scanFrame,
-            SCAN_INTERVAL_MS,
+        if (domError?.name === 'NotFoundError') {
+          reportError(
+            'No camera was found on this device.',
           );
+
           return;
         }
 
         if (
-          video.readyState <
-            HTMLMediaElement.HAVE_CURRENT_DATA ||
-          video.videoWidth <= 0 ||
-          video.videoHeight <= 0
+          domError?.name === 'NotReadableError'
         ) {
-          timer = setTimeout(
-            scanFrame,
-            SCAN_INTERVAL_MS,
+          reportError(
+            'The camera is currently unavailable. Close any other app using the camera and try again.',
           );
+
           return;
         }
 
-        const canvas = canvasRef.current;
-
-        if (!canvas) {
-          timer = setTimeout(
-            scanFrame,
-            SCAN_INTERVAL_MS,
+        if (
+          domError?.name === 'OverconstrainedError'
+        ) {
+          reportError(
+            'The requested camera settings are not supported on this device.',
           );
+
           return;
         }
 
-        scanning = true;
-
-        try {
-          /**
-           * Scale the camera frame down if necessary.
-           *
-           * Scanning a full-resolution iPhone camera frame can be
-           * unnecessarily expensive.
-           */
-          const scale = Math.min(
-            1,
-            MAX_SCAN_WIDTH / video.videoWidth,
-          );
-
-          const scanWidth = Math.max(
-            1,
-            Math.round(video.videoWidth * scale),
-          );
-
-          const scanHeight = Math.max(
-            1,
-            Math.round(video.videoHeight * scale),
-          );
-
-          if (
-            canvas.width !== scanWidth ||
-            canvas.height !== scanHeight
-          ) {
-            canvas.width = scanWidth;
-            canvas.height = scanHeight;
-          }
-
-          const context = canvas.getContext('2d', {
-            willReadFrequently: true,
-          });
-
-          if (!context) {
-            throw new Error(
-              'Could not create canvas context.',
-            );
-          }
-
-          /**
-           * Copy the current camera frame into the canvas.
-           */
-          context.drawImage(
-            video,
-            0,
-            0,
-            scanWidth,
-            scanHeight,
-          );
-
-          /**
-           * Detect QR code from the canvas instead of directly
-           * from the <video> element.
-           */
-          const results =
-            await detector.detect(canvas);
-
-          if (cancelled) {
-            return;
-          }
-
-          const value = results[0]?.rawValue;
-
-          if (value) {
-            console.log(
-              'QR code detected:',
-              value,
-            );
-
-            onScanRef.current(value);
-          }
-        } catch (err) {
-          /**
-           * IMPORTANT:
-           *
-           * Do not silently ignore these while debugging iPhones.
-           * Safari errors will appear here.
-           */
-          console.error(
-            'QR detection failed:',
-            err,
-          );
-        } finally {
-          scanning = false;
-        }
-
-        if (!cancelled) {
-          timer = setTimeout(
-            scanFrame,
-            SCAN_INTERVAL_MS,
-          );
-        }
-      };
-
-      scanFrame();
+        reportError(
+          'Could not start the QR scanner. Please refresh the page and try again.',
+        );
+      }
     }
 
     startScanner();
 
+    const videoElement = videoRef.current;
+
     return () => {
       cancelled = true;
-      stopCamera();
+
+      try {
+        controlsRef.current?.stop();
+      } catch (err) {
+        console.warn(
+          'Could not stop QR scanner:',
+          err,
+        );
+      }
+
+      controlsRef.current = null;
+      readerRef.current = null;
+
+      /**
+       * Extra cleanup for Safari.
+       * Use the video element captured when this effect ran.
+       */
+      if (videoElement?.srcObject) {
+        const stream =
+          videoElement.srcObject as MediaStream;
+
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
+
+        videoElement.srcObject = null;
+      }
     };
   }, [reportError]);
 
@@ -517,42 +365,33 @@ export function QrScanner({
         className="h-full w-full object-cover"
       />
 
-      {/*
-       * Hidden canvas used for QR decoding.
-       *
-       * Do NOT use display:none here.
-       * Keeping it visually hidden/off-screen avoids some browser
-       * inconsistencies with drawing/detection.
-       */}
-      <canvas
-        ref={canvasRef}
-        aria-hidden="true"
-        className="pointer-events-none absolute left-[-9999px] top-[-9999px]"
-      />
-
       {/* QR framing guide */}
       {ready && !error && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="relative h-3/5 w-3/5">
-            <div className="absolute left-0 top-0 h-8 w-8 border-l-4 border-t-4 border-white" />
+            {/* Top left */}
+            <div className="absolute left-0 top-0 h-9 w-9 border-l-4 border-t-4 border-white" />
 
-            <div className="absolute right-0 top-0 h-8 w-8 border-r-4 border-t-4 border-white" />
+            {/* Top right */}
+            <div className="absolute right-0 top-0 h-9 w-9 border-r-4 border-t-4 border-white" />
 
-            <div className="absolute bottom-0 left-0 h-8 w-8 border-b-4 border-l-4 border-white" />
+            {/* Bottom left */}
+            <div className="absolute bottom-0 left-0 h-9 w-9 border-b-4 border-l-4 border-white" />
 
-            <div className="absolute bottom-0 right-0 h-8 w-8 border-b-4 border-r-4 border-white" />
+            {/* Bottom right */}
+            <div className="absolute bottom-0 right-0 h-9 w-9 border-b-4 border-r-4 border-white" />
           </div>
         </div>
       )}
 
-      {/* Loading */}
+      {/* Loading state */}
       {!ready && !error && (
         <p className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-white">
           Starting camera…
         </p>
       )}
 
-      {/* Error */}
+      {/* Error state */}
       {error && (
         <p
           role="alert"
