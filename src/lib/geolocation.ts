@@ -181,7 +181,12 @@ function collectSamples(): Promise<GeolocationPosition[]> {
         if (error.code === error.PERMISSION_DENIED) {
           fail(
             new LocationError(
-              'Location permission was denied. Check-in needs your location to confirm you are at the branch.',
+              'Could not access your location. If your browser did not show a ' +
+                'permission prompt, this usually means Location/GPS is turned ' +
+                'off for your device or for this browser app — check your ' +
+                'phone\'s Location Services setting (and the browser\'s app ' +
+                'permission) and try again. Otherwise, check the site permission ' +
+                'in your browser settings and allow location for this page.',
               'denied',
             ),
           );
