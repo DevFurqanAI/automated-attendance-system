@@ -49,6 +49,7 @@
 /* Respect the "no gradients, no drop shadows" direction globally. */
 html {
   -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
 }
 
 /*
@@ -73,6 +74,7 @@ html {
 }
 
 body {
+  overflow-x: hidden;
   background-color: var(--color-surface-muted);
   color: var(--color-ink);
   font-family: var(--font-sans);
