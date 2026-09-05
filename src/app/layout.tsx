@@ -20,7 +20,10 @@ export const viewport: Viewport = {
   themeColor: '#4a7c8c',
   width: 'device-width',
   initialScale: 1,
-  // Staff use this one-handed outdoors; let them zoom.
+  // Staff use this one-handed outdoors; let them zoom in, but not out —
+  // zooming out lets wide layouts (e.g. the Employees table) shrink to fit
+  // instead of scrolling horizontally as intended.
+  minimumScale: 1,
   maximumScale: 5,
 };
 
